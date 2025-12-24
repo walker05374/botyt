@@ -69,7 +69,8 @@ const cleanTempFolder = () => {
 cleanTempFolder();
 
 const isYoutubeLink = (text) => {
-    return text.match(/^(http(s)?:\/\/)?((w){3}.)?youtu(be|.be)?(\.com)?\/.+/);
+    const match = text.match(/((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?/);
+    return match ? match[0] : null;
 };
 
 const formatBytes = (bytes, decimals = 2) => {
@@ -118,19 +119,98 @@ client.on('message', async msg => {
     if (['/ajuda', '!ajuda', '!help'].includes(text.toLowerCase())) {
         const helpText = `🤖 *Manual do Bot* 🤖\n\n` +
             `1️⃣ *Baixar do YouTube*:\n` +
-            `Envie o link de um vídeo do YouTube e escolha a qualidade.\n\n` +
+            `Use */baixar* (ou @baixar) seguido do link.\n` +
+            `Ex: */baixar https://youtu.be/...*\n\n` +
             `2️⃣ *Converter Mídia (Áudio/Vídeo)*:\n` +
-            `Responda a um vídeo ou áudio com */amor* (ou @amor) para converter.\n\n` +
+            `Responda a um vídeo ou áudio com */converter* (ou @converter).\n\n` +
             `3️⃣ *Conversão em Lote*:\n` +
-            `Envie vários arquivos de mídia e digite */amor* no final. Ele vai converter todas as suas últimas mídias enviadas (últimos 5 min).\n\n` +
+            `Envie vários arquivos e digite */converter* no final para processar todos.\n\n` +
             `❌ *Cancelar*:\n` +
-            `Digite *!cancelar* a qualquer momento para parar uma operação.`;
+            `Digite *!cancelar* a qualquer momento.`;
         msg.reply(helpText);
         return;
     }
 
-    // NOVA FUNCIONALIDADE: Conversão de arquivos (/amor)
-    if (['/amor', '@amor', '/converter', '!converter'].includes(text.toLowerCase().split(' ')[0])) {
+    // COMANDO 1: BAIXAR DO YOUTUBE (/baixar ou @baixar)
+    if (['/baixar', '@baixar', '!baixar'].includes(text.toLowerCase().split(' ')[0])) {
+        // Encontra o link no texto
+        const ytLink = isYoutubeLink(text);
+        if (ytLink) {
+            msg.reply('🔍 Analisando link do YouTube...');
+
+            try {
+                const jsonOutput = await ytDlpWrap.execPromise([
+                    ytLink,
+                    '--dump-json',
+                    '--no-check-certificates',
+                    '--no-warnings',
+                    '--prefer-free-formats',
+                    '--add-header', 'referer:youtube.com',
+                    '--add-header', 'user-agent:googlebot',
+                    '--ffmpeg-location', path.dirname(ffmpegPath)
+                ]);
+
+                const output = JSON.parse(jsonOutput);
+                const formats = output.formats || [];
+                const options = [];
+
+                options.push({ type: 'audio', quality: 'MP3 (Audio Only)', id: 'audio-only', ext: 'mp3' });
+
+                const availableHeights = [...new Set(formats.map(f => f.height).filter(h => h))].sort((a, b) => b - a);
+                const idsAdded = new Set();
+
+                availableHeights.forEach(h => {
+                    let bestFormat = formats.find(f => f.height === h && f.acodec !== 'none' && f.ext === 'mp4');
+                    if (!bestFormat) bestFormat = formats.find(f => f.height === h);
+
+                    if (bestFormat && !idsAdded.has(h)) {
+                        idsAdded.add(h);
+                        options.push({
+                            type: 'video',
+                            quality: `${h}p`,
+                            id: bestFormat.format_id,
+                            hasAudio: bestFormat.acodec !== 'none',
+                            ext: 'mp4',
+                            filesize: bestFormat.filesize || bestFormat.filesize_approx
+                        });
+                    }
+                });
+
+                // Fallback
+                if (options.length === 1 && formats.length > 0) {
+                    options.push({ type: 'video', quality: 'Melhor Qualidade (Auto)', id: 'best', hasAudio: true, ext: 'mp4' });
+                }
+
+                userStates[chatId] = {
+                    step: 'SELECTING_OPTION',
+                    url: ytLink,
+                    title: output.title,
+                    options: options.slice(0, 8)
+                };
+
+                let menu = `🎥 *${output.title}*\n\nEscolha uma opção:\n`;
+                userStates[chatId].options.forEach((opt, index) => {
+                    menu += `*${index + 1}*. ${opt.quality} ${opt.filesize ? `(~${formatBytes(opt.filesize)})` : ''}\n`;
+                });
+                menu += `\nResponda com o número.`;
+
+                msg.reply(menu);
+                return;
+
+            } catch (e) {
+                console.error(e);
+                msg.reply('❌ Erro ao ler link.');
+                return;
+            }
+        } else {
+            msg.reply('⚠️ Você precisa enviar o link junto com o comando.\nExemplo: */baixar https://youtu.be/...*');
+            return;
+        }
+    }
+
+    // COMANDO 2: CONVERTER MÍDIA (/converter ou @converter)
+    // Antigo /amor agora é /converter, mas mantendo compatibilidade se quiser
+    if (['/converter', '@converter', '!converter', '/amor', '@amor'].includes(text.toLowerCase().split(' ')[0])) {
 
         let targetMsgs = [];
 
@@ -154,7 +234,7 @@ client.on('message', async msg => {
         }
 
         if (targetMsgs.length === 0) {
-            msg.reply('❌ Nenhuma mídia encontrada. Responda a um arquivo ou envie vários arquivos e digite /amor em seguida.');
+            msg.reply('❌ Nenhuma mídia encontrada para converter.\nResponda a um arquivo ou envie vários e digite */converter*.');
             return;
         }
 
@@ -165,155 +245,6 @@ client.on('message', async msg => {
             msgs: targetMsgs
         };
         return;
-    }
-
-    // Processar conversão
-    if (userStates[chatId] && userStates[chatId].step === 'BATCH_CONVERSION') {
-        if (!/^\d+$/.test(text)) return; // Ignora se não for número
-
-        const choice = parseInt(text);
-        const formatMap = { 1: 'mp3', 2: 'ogg', 3: 'wav', 4: 'mp4' };
-        const targetFormat = formatMap[choice];
-
-        if (!targetFormat) {
-            msg.reply('⚠️ Opção inválida. Escolha entre 1 e 4 ou digite !cancelar.');
-            return;
-        }
-
-        const msgsToConvert = userStates[chatId].msgs;
-        delete userStates[chatId];
-
-        msg.reply(`⏳ Iniciando conversão de ${msgsToConvert.length} arquivo(s) para *${targetFormat.toUpperCase()}*...`);
-
-        // Processamento Sequencial com delay
-        for (const [index, message] of msgsToConvert.entries()) {
-            try {
-                console.log(`Convertendo ${index + 1}/${msgsToConvert.length}...`);
-                const media = await message.downloadMedia();
-
-                if (!media) {
-                    console.log('Falha download mídia');
-                    continue;
-                }
-
-                const tempDir = path.join(__dirname, 'temp');
-                if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-
-                const time = Date.now();
-                const inputFilename = `batch_${time}_${index}`;
-                const ext = (media.mimetype.split('/')[1] || '').split(';')[0] || 'dat';
-                const inputPath = path.join(tempDir, `${inputFilename}.${ext}`);
-                const outputPath = path.join(tempDir, `${inputFilename}.${targetFormat}`);
-
-                fs.writeFileSync(inputPath, media.data, 'base64');
-
-                await new Promise((resolve, reject) => {
-                    let command = ffmpeg(inputPath).setFfmpegPath(ffmpegPath).toFormat(targetFormat);
-                    if (targetFormat === 'mp4') command.videoCodec('libx264').audioCodec('aac');
-
-                    command
-                        .on('end', async () => {
-                            const outMedia = MessageMedia.fromFilePath(outputPath);
-                            outMedia.filename = `${index + 1}.${targetFormat}`;
-                            await client.sendMessage(chatId, outMedia, {
-                                sendMediaAsDocument: true,
-                                caption: `ta ai gatona! 😺 (${index + 1}/${msgsToConvert.length})`
-                            });
-
-                            setTimeout(() => {
-                                try { fs.unlinkSync(inputPath); fs.unlinkSync(outputPath); } catch (e) { }
-                            }, 5000);
-                            resolve();
-                        })
-                        .on('error', (err) => {
-                            console.error('Erro ffmpeg batch:', err);
-                            resolve(); // Resolve para não travar o loop, mas loga erro
-                        })
-                        .save(outputPath);
-                });
-
-                // Pequeno delay entre envios para não tomar ban/spam
-                await new Promise(r => setTimeout(r, 1500));
-
-            } catch (e) {
-                console.error(`Erro ao processar item ${index}:`, e);
-                client.sendMessage(chatId, `❌ Erro ao converter item ${index + 1}.`);
-            }
-        }
-
-        client.sendMessage(chatId, '✅ Todos os arquivos processados!');
-        return;
-    }
-
-    // Funcionalidade Antiga: Link Youtube
-    // Se não estivermos em estado de espera e for link
-    if (!userStates[chatId] && isYoutubeLink(text)) {
-        msg.reply('🔍 Analisando link...');
-
-        try {
-            const jsonOutput = await ytDlpWrap.execPromise([
-                text,
-                '--dump-json',
-                '--no-check-certificates',
-                '--no-warnings',
-                '--prefer-free-formats',
-                '--add-header', 'referer:youtube.com',
-                '--add-header', 'user-agent:googlebot',
-                '--ffmpeg-location', path.dirname(ffmpegPath)
-            ]);
-
-            const output = JSON.parse(jsonOutput);
-            const formats = output.formats || [];
-            const options = [];
-
-            options.push({ type: 'audio', quality: 'MP3 (Audio Only)', id: 'audio-only', ext: 'mp3' });
-
-            const availableHeights = [...new Set(formats.map(f => f.height).filter(h => h))].sort((a, b) => b - a);
-            const idsAdded = new Set();
-
-            availableHeights.forEach(h => {
-                let bestFormat = formats.find(f => f.height === h && f.acodec !== 'none' && f.ext === 'mp4');
-                if (!bestFormat) bestFormat = formats.find(f => f.height === h);
-
-                if (bestFormat && !idsAdded.has(h)) {
-                    idsAdded.add(h);
-                    options.push({
-                        type: 'video',
-                        quality: `${h}p`,
-                        id: bestFormat.format_id,
-                        hasAudio: bestFormat.acodec !== 'none',
-                        ext: 'mp4',
-                        filesize: bestFormat.filesize || bestFormat.filesize_approx
-                    });
-                }
-            });
-
-            // Fallback
-            if (options.length === 1 && formats.length > 0) {
-                options.push({ type: 'video', quality: 'Melhor Qualidade (Auto)', id: 'best', hasAudio: true, ext: 'mp4' });
-            }
-
-            userStates[chatId] = {
-                step: 'SELECTING_OPTION',
-                url: text,
-                title: output.title,
-                options: options.slice(0, 8)
-            };
-
-            let menu = `🎥 *${output.title}*\n\nEscolha uma opção:\n`;
-            userStates[chatId].options.forEach((opt, index) => {
-                menu += `*${index + 1}*. ${opt.quality} ${opt.filesize ? `(~${formatBytes(opt.filesize)})` : ''}\n`;
-            });
-            menu += `\nResponda com o número.`;
-
-            msg.reply(menu);
-            return;
-
-        } catch (e) {
-            console.error(e);
-            msg.reply('❌ Erro ao ler link.');
-            return;
-        }
     }
 
     // Fluxo Youtube: Seleção
