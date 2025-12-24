@@ -23,8 +23,17 @@ echo "📚 Instalando bibliotecas do bot..."
 if [ -f "package.json" ]; then
     # Fix para Android: Remove ffmpeg-static que não é compatível
     if grep -q "com.termux" <<< "$PREFIX"; then
-        echo "📱 Detectado Android/Termux: Removendo ffmpeg-static incompatível..."
-        npm uninstall ffmpeg-static
+        echo "📱 Detectado Android/Termux: Tentando corrigir dependências..."
+        
+        # 1. Remove ffmpeg-static do package.json se existir
+        if grep -q "ffmpeg-static" package.json; then
+            echo "🔥 Removendo ffmpeg-static do package.json..."
+            sed -i '/ffmpeg-static/d' package.json
+        fi
+
+        # 2. Limpa instalações antigas para evitar cache
+        echo "🧹 Limpando instalação anterior..."
+        rm -rf node_modules package-lock.json
     fi
 
     npm install
