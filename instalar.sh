@@ -17,9 +17,16 @@ echo "⚠️ ATENÇÃO: Se aparecer um pop-up pedindo permissão, clique em PERM
 termux-setup-storage
 sleep 3
 
+
 # 4. Instalar dependências do projeto (npm)
 echo "📚 Instalando bibliotecas do bot..."
 if [ -f "package.json" ]; then
+    # Fix para Android: Remove ffmpeg-static que não é compatível
+    if grep -q "com.termux" <<< "$PREFIX"; then
+        echo "📱 Detectado Android/Termux: Removendo ffmpeg-static incompatível..."
+        npm uninstall ffmpeg-static
+    fi
+
     npm install
 else
     echo "⚠️ package.json não encontrado! Certifique-se de estar na pasta do bot."

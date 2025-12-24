@@ -6,7 +6,13 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
+let ffmpegPath;
+try {
+    ffmpegPath = require('ffmpeg-static');
+} catch (e) {
+    console.log('⚠️ ffmpeg-static não encontrado, usando ffmpeg do sistema.');
+    ffmpegPath = 'ffmpeg';
+}
 
 // Configurar ffmpeg
 ffmpeg.setFfmpegPath(ffmpegPath);
