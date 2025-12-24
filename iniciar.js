@@ -133,79 +133,48 @@ client.on('message', async msg => {
 
     // COMANDO 1: BAIXAR DO YOUTUBE (/baixar ou @baixar)
     if (['/baixar', '@baixar', '!baixar'].includes(text.toLowerCase().split(' ')[0])) {
-        // Encontra o link no texto
-        const ytLink = isYoutubeLink(text);
-        if (ytLink) {
-            msg.reply('🔍 Analisando link do YouTube...');
+        let linksToProcess = [];
 
-            try {
-                const jsonOutput = await ytDlpWrap.execPromise([
-                    ytLink,
-                    '--dump-json',
-                    '--no-check-certificates',
-                    '--no-warnings',
-                    '--prefer-free-formats',
-                    '--add-header', 'referer:youtube.com',
-                    '--add-header', 'user-agent:googlebot',
-                    '--ffmpeg-location', path.dirname(ffmpegPath)
-                ]);
+        // 1. Verifica se tem link na própria mensagem
+        const directLink = isYoutubeLink(text);
+        if (directLink) {
+            linksToProcess.push(directLink);
+        } else {
+            // 2. Se não tem, verifica histórico ou citações
+            if (msg.hasQuotedMsg) {
+                const quoted = await msg.getQuotedMessage();
+                const quotedLink = isYoutubeLink(quoted.body);
+                if (quotedLink) linksToProcess.push(quotedLink);
+            } else {
+                // Busca últimas mensagens para achar links
+                const chat = await msg.getChat();
+                const fetched = await chat.fetchMessages({ limit: 10 });
 
-                const output = JSON.parse(jsonOutput);
-                const formats = output.formats || [];
-                const options = [];
-
-                options.push({ type: 'audio', quality: 'MP3 (Audio Only)', id: 'audio-only', ext: 'mp3' });
-
-                const availableHeights = [...new Set(formats.map(f => f.height).filter(h => h))].sort((a, b) => b - a);
-                const idsAdded = new Set();
-
-                availableHeights.forEach(h => {
-                    let bestFormat = formats.find(f => f.height === h && f.acodec !== 'none' && f.ext === 'mp4');
-                    if (!bestFormat) bestFormat = formats.find(f => f.height === h);
-
-                    if (bestFormat && !idsAdded.has(h)) {
-                        idsAdded.add(h);
-                        options.push({
-                            type: 'video',
-                            quality: `${h}p`,
-                            id: bestFormat.format_id,
-                            hasAudio: bestFormat.acodec !== 'none',
-                            ext: 'mp4',
-                            filesize: bestFormat.filesize || bestFormat.filesize_approx
-                        });
+                // Filtra mensagens do usuário com links recentes
+                fetched.forEach(m => {
+                    if (!m.fromMe && (Date.now() / 1000 - m.timestamp) < 300) {
+                        const l = isYoutubeLink(m.body);
+                        if (l) linksToProcess.push(l);
                     }
                 });
-
-                // Fallback
-                if (options.length === 1 && formats.length > 0) {
-                    options.push({ type: 'video', quality: 'Melhor Qualidade (Auto)', id: 'best', hasAudio: true, ext: 'mp4' });
-                }
-
-                userStates[chatId] = {
-                    step: 'SELECTING_OPTION',
-                    url: ytLink,
-                    title: output.title,
-                    options: options.slice(0, 8)
-                };
-
-                let menu = `🎥 *${output.title}*\n\nEscolha uma opção:\n`;
-                userStates[chatId].options.forEach((opt, index) => {
-                    menu += `*${index + 1}*. ${opt.quality} ${opt.filesize ? `(~${formatBytes(opt.filesize)})` : ''}\n`;
-                });
-                menu += `\nResponda com o número.`;
-
-                msg.reply(menu);
-                return;
-
-            } catch (e) {
-                console.error(e);
-                msg.reply('❌ Erro ao ler link.');
-                return;
             }
-        } else {
-            msg.reply('⚠️ Você precisa enviar o link junto com o comando.\nExemplo: */baixar https://youtu.be/...*');
+        }
+
+        // Remove duplicatas
+        linksToProcess = [...new Set(linksToProcess)];
+
+        if (linksToProcess.length === 0) {
+            msg.reply('⚠️ Nenhum link do YouTube encontrado.\nEnvie o link junto com o comando ou logo antes.');
             return;
         }
+
+        msg.reply(`🔎 Encontrei ${linksToProcess.length} link(s). Escolha o formato para baixar TODOS:\n\n*1*. MP3 (Áudio)\n*2*. MP4 (Vídeo - Melhor Qualidade)\n\nResponda com o número.`);
+
+        userStates[chatId] = {
+            step: 'BATCH_DOWNLOAD',
+            links: linksToProcess
+        };
+        return;
     }
 
     // COMANDO 2: CONVERTER MÍDIA (/converter ou @converter)
@@ -247,94 +216,82 @@ client.on('message', async msg => {
         return;
     }
 
-    // Fluxo Youtube: Seleção
-    if (userStates[chatId] && userStates[chatId].step === 'SELECTING_OPTION') {
+    // Fluxo Youtube: Processamento em Lote
+    if (userStates[chatId] && userStates[chatId].step === 'BATCH_DOWNLOAD') {
+        if (!/^\d+$/.test(text)) return;
+
         const choice = parseInt(text);
-
-        if (isNaN(choice)) return; // Silêncio se não for número
-
-        if (choice < 1 || choice > userStates[chatId].options.length) {
-            msg.reply('⚠️ Opção inválida.');
+        if (choice !== 1 && choice !== 2) {
+            msg.reply('⚠️ Opção inválida. Escolha 1 (MP3) ou 2 (MP4).');
             return;
         }
 
-        const selectedOption = userStates[chatId].options[choice - 1];
-        const videoTitle = (userStates[chatId].title || 'video')
-            .replace(/[^\w\s\u00C0-\u00FF-]/g, '')
-            .replace(/\s+/g, '_')
-            .substring(0, 50);
-
-        const videoUrl = userStates[chatId].url;
-
-        msg.reply(`⏳ Baixando *${selectedOption.quality}*...`);
+        const links = userStates[chatId].links;
+        const type = choice === 1 ? 'audio' : 'video';
         delete userStates[chatId];
 
-        const tempDir = path.join(__dirname, 'temp');
-        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+        msg.reply(`⏳ Baixando ${links.length} arquivo(s) em formato *${type === 'audio' ? 'MP3' : 'MP4'}*...`);
 
-        const baseFilename = `dl_${Date.now()}_${videoTitle}`;
+        for (const [index, link] of links.entries()) {
+            try {
+                const tempDir = path.join(__dirname, 'temp');
+                if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
-        try {
-            let args = [];
+                const baseFilename = `dl_${Date.now()}_${index}`;
+                let args = [];
 
-            if (selectedOption.type === 'audio') {
-                args = [
-                    videoUrl,
-                    '-x',
-                    '--audio-format', 'mp3',
-                    '-o', path.join(tempDir, `${baseFilename}.%(ext)s`),
-                    '--no-check-certificates',
-                    '--ffmpeg-location', path.dirname(ffmpegPath)
-                ];
-            } else {
-                let formatSelector = selectedOption.id;
-                if (!selectedOption.hasAudio || selectedOption.id === 'best') {
-                    if (selectedOption.id !== 'best') formatSelector += '+bestaudio';
+                if (type === 'audio') {
+                    args = [
+                        link,
+                        '-x',
+                        '--audio-format', 'mp3',
+                        '-o', path.join(tempDir, `${baseFilename}.%(ext)s`),
+                        '--no-check-certificates',
+                        '--prefer-free-formats',
+                        '--ffmpeg-location', path.dirname(ffmpegPath)
+                    ];
+                } else {
+                    args = [
+                        link,
+                        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                        '--merge-output-format', 'mp4',
+                        '-o', path.join(tempDir, `${baseFilename}.%(ext)s`),
+                        '--no-check-certificates',
+                        '--prefer-free-formats',
+                        '--ffmpeg-location', path.dirname(ffmpegPath)
+                    ];
                 }
 
-                args = [
-                    videoUrl,
-                    '-f', formatSelector,
-                    '--merge-output-format', 'mp4',
-                    '-o', path.join(tempDir, `${baseFilename}.%(ext)s`),
-                    '--no-check-certificates',
-                    '--ffmpeg-location', path.dirname(ffmpegPath)
-                ];
+                await ytDlpWrap.execPromise(args);
+
+                const files = fs.readdirSync(tempDir);
+                const downloadedFile = files.find(f => f.startsWith(baseFilename) && !f.endsWith('.part'));
+
+                if (downloadedFile) {
+                    const filePath = path.join(tempDir, downloadedFile);
+                    const media = MessageMedia.fromFilePath(filePath);
+
+                    await client.sendMessage(chatId, media, {
+                        sendMediaAsDocument: true,
+                        caption: `(${index + 1}/${links.length}) ta ai gatona! 😺`
+                    });
+
+                    setTimeout(() => { try { fs.unlinkSync(filePath); } catch (e) { } }, 10000);
+                } else {
+                    client.sendMessage(chatId, `❌ Erro no download do item ${index + 1}`);
+                }
+
+                // Delay anti-spam
+                await new Promise(r => setTimeout(r, 2000));
+
+            } catch (e) {
+                console.error(`Erro lote ${index}:`, e);
+                client.sendMessage(chatId, `❌ Erro ao baixar item ${index + 1}`);
             }
-
-            console.log('START DOWNLOAD', args.join(' '));
-            await ytDlpWrap.execPromise(args);
-            console.log('END DOWNLOAD');
-
-            const files = fs.readdirSync(tempDir);
-            const downloadedFile = files.find(f => f.startsWith(baseFilename) && !f.endsWith('.part'));
-
-            if (downloadedFile) {
-                const filePath = path.join(tempDir, downloadedFile);
-
-                // Check Size
-                const stats = fs.statSync(filePath);
-                const sizeMB = stats.size / (1024 * 1024);
-
-                console.log(`Enviando ${filePath} (${sizeMB.toFixed(2)} MB)`);
-                if (sizeMB > 64) msg.reply('⚠️ Arquivo grande, pode falhar.');
-
-                const media = MessageMedia.fromFilePath(filePath);
-
-                await client.sendMessage(chatId, media, {
-                    sendMediaAsDocument: true,
-                    caption: 'ta ai gatona! 😺'
-                });
-
-                setTimeout(() => { try { fs.unlinkSync(filePath); } catch (e) { } }, 10000);
-            } else {
-                throw new Error('Arquivo não encontrado.');
-            }
-
-        } catch (e) {
-            console.error('Erro Download:', e);
-            msg.reply('❌ Erro no download.');
         }
+
+        client.sendMessage(chatId, '✅ Todos os downloads concluídos!');
+        return;
     }
 });
 
