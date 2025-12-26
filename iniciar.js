@@ -102,8 +102,29 @@ const client = new Client({
 });
 
 // Estado em memória
-const userStates = {};
-const userLastProcessTime = {}; // Marca quando foi o último comando do usuário
+// Estado em memória (com persistência)
+const memoryFile = path.join(__dirname, 'process_memory.json');
+let userStates = {};
+let userLastProcessTime = {};
+
+// Carrega memória ao iniciar
+if (fs.existsSync(memoryFile)) {
+    try {
+        userLastProcessTime = JSON.parse(fs.readFileSync(memoryFile));
+        console.log('🧠 Memória de processamento carregada.');
+    } catch (e) {
+        console.error('⚠️ Falha ao ler memória:', e);
+    }
+}
+
+// Função para salvar memória
+const saveMemory = () => {
+    try {
+        fs.writeFileSync(memoryFile, JSON.stringify(userLastProcessTime, null, 2));
+    } catch (e) {
+        console.error('⚠️ Falha ao salvar memória:', e);
+    }
+};
 
 // --- GERAÇÃO DO QR CODE ---
 client.on('qr', (qr) => {
@@ -214,8 +235,9 @@ client.on('message', async msg => {
 
         const historyLinks = await fetchRecentItems(chat, 'links', lastTime, commandTime);
 
-        // ATUALIZA O TEMPO PARA O HORÁRIO DESTE COMANDO
+        // ATUALIZA O TEMPO PARA O HORÁRIO DESTE COMANDO E SALVA
         userLastProcessTime[chatId] = commandTime;
+        saveMemory();
 
         // Se tiver links na própria mensagem, inclui eles também
         const allLinks = [...new Set([...currentLinks, ...historyLinks])];
@@ -238,8 +260,9 @@ client.on('message', async msg => {
 
         const historyMedia = await fetchRecentItems(chat, 'media', lastTime, commandTime);
 
-        // ATUALIZA O TEMPO PARA O HORÁRIO DESTE COMANDO
+        // ATUALIZA O TEMPO PARA O HORÁRIO DESTE COMANDO E SALVA
         userLastProcessTime[chatId] = commandTime; // Importante: Atualiza ANTES de processar para garantir a janela
+        saveMemory();
 
         // Inclui a mensagem citada apenas se ela for NOVA (dentro da janela) ou explicitamente citada
         // Se for explicitamente citada, ignoramos a janela para ela
