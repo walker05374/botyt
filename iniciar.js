@@ -27,18 +27,39 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 
 // --- BUSCA AUTOMÁTICA DO NAVEGADOR (CHROME) ---
 let chromePath;
+
+// Função para achar comandos no sistema
+const which = (cmd) => {
+    try {
+        const { execSync } = require('child_process');
+        return execSync(`which ${cmd}`).toString().trim();
+    } catch (e) {
+        return null;
+    }
+};
+
 if (isTermux) {
-    // No Termux, o Chromium é OBRIGATÓRIO
-    const termuxChromiumPath = '/data/data/com.termux/files/usr/bin/chromium';
-    if (fs.existsSync(termuxChromiumPath)) {
-        chromePath = termuxChromiumPath;
-    } else {
+    // Tenta achar 'chromium' ou 'chromium-browser' no PATH
+    chromePath = which('chromium') || which('chromium-browser');
+
+    if (!chromePath) {
+        // Fallback para caminhos comuns se o 'which' falhar
+        const commonPaths = [
+            '/data/data/com.termux/files/usr/bin/chromium',
+            '/data/data/com.termux/files/usr/bin/chromium-browser'
+        ];
+        chromePath = commonPaths.find(p => fs.existsSync(p));
+    }
+
+    if (!chromePath) {
         console.error('\n❌ ERRO CRÍTICO: Chromium não encontrado no Termux!');
         console.error('👉 Para corrigir, execute este comando no Termux:');
         console.error('   pkg install chromium');
         console.error('Depois tente rodar o bot novamente.\n');
         process.exit(1);
     }
+    console.log(`✅ Navegador encontrado: ${chromePath}`);
+
 } else if (isWindows) {
     // Tenta achar o Chrome ou Edge no Windows automaticamente
     const possiblePaths = [
