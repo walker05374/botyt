@@ -132,7 +132,7 @@ client.on('ready', () => {
     console.log('\n==================================================');
     console.log('🤖 BOT ONLINE E PRONTO PARA USO!');
     console.log('==================================================');
-    console.log('\n📋 Comandos: /baixar (link), /amor (midia), /ajuda');
+    console.log('\n📋 Comandos: /baixar (link), /converter (midia)');
 });
 
 // --- FUNÇÕES UTILITÁRIAS ---
@@ -170,20 +170,23 @@ client.on('message', async msg => {
     }
 
     if (['/ajuda', '!ajuda'].includes(text.toLowerCase())) {
-        msg.reply('🤖 Comandos:\n1. */baixar* (ou @baixar) após enviar links\n2. */converter* (ou @converter) após enviar midias\n\nO bot olha os últimos 5 minutos de conversa.');
+        msg.reply('🤖 Comandos:\n1. */baixar* (ou @baixar) após enviar links\n2. */converter* (ou @converter) após enviar midias\n\nO bot processa apenas o que foi enviado APÓS o último comando.');
         return;
     }
 
-    // Função auxiliar para buscar itens no histórico (5 minutos ou desde o último comando)
-    const fetchRecentItems = async (chat, type, minTimestamp) => {
+    // Função auxiliar para buscar itens no histórico (Janela estrita: > minTimestamp e <= maxTimestamp)
+    const fetchRecentItems = async (chat, type, minTimestamp, maxTimestamp) => {
         const history = await chat.fetchMessages({ limit: 50 });
-        // Se tiver minTimestamp usa ele, senão usa 5 minutos atrás
-        const limitTime = minTimestamp || (Date.now() - (5 * 60 * 1000));
 
-        // Filtra mensagens recentes do usuário (ou todas se for grupo e quiser pegar de todos)
+        // Se não tiver minTimestamp, assume muito antigo (0)
+        // Se não tiver maxTimestamp, assume agora
+        const start = minTimestamp || 0;
+        const end = maxTimestamp || Date.now();
+
+        // Filtra mensagens estritamente dentro da janela
         const recentMsgs = history.filter(m => {
             const msgTime = m.timestamp * 1000;
-            return msgTime > limitTime && !m.fromMe;
+            return msgTime > start && msgTime <= end && !m.fromMe;
         });
 
         if (type === 'links') {
@@ -205,16 +208,19 @@ client.on('message', async msg => {
         const currentLinks = getYoutubeLinks(text); // Links na própria msg do comando
         const chat = await msg.getChat();
 
-        // Pega data do último processamento ou 0
+        // Janela de Tempo: Do último comando até AGORA (horário desta mensagem de comando)
         const lastTime = userLastProcessTime[chatId] || 0;
-        const historyLinks = await fetchRecentItems(chat, 'links', lastTime);
+        const commandTime = msg.timestamp * 1000;
 
-        // ATUALIZA O TEMPO IMEDIATAMENTE (Consumir e esquecer)
-        userLastProcessTime[chatId] = Date.now();
+        const historyLinks = await fetchRecentItems(chat, 'links', lastTime, commandTime);
 
+        // ATUALIZA O TEMPO PARA O HORÁRIO DESTE COMANDO
+        userLastProcessTime[chatId] = commandTime;
+
+        // Se tiver links na própria mensagem, inclui eles também
         const allLinks = [...new Set([...currentLinks, ...historyLinks])];
 
-        if (allLinks.length === 0) return msg.reply('⚠️ Nenhum link do YouTube encontrado nos últimos 5 minutos.');
+        if (allLinks.length === 0) return msg.reply('⚠️ Nenhum item novo encontrado após o último comando.');
 
         userStates[chatId] = { step: 'BATCH_DOWNLOAD', links: allLinks };
         msg.reply(`Encontrei ${allLinks.length} link(s). 📥\nEscolha:\n1. MP3 (Áudio)\n2. MP4 (Melhor Qualidade)\n3. MP4 (720p)\n4. MP4 (360p Leve)`);
@@ -226,14 +232,17 @@ client.on('message', async msg => {
         await msg.react('🔎'); // Feedback instantâneo
         const chat = await msg.getChat();
 
-        // Pega data do último processamento ou 0
+        // Janela de Tempo: Do último comando até AGORA
         const lastTime = userLastProcessTime[chatId] || 0;
-        const historyMedia = await fetchRecentItems(chat, 'media', lastTime);
+        const commandTime = msg.timestamp * 1000;
 
-        // ATUALIZA O TEMPO IMEDIATAMENTE (Consumir e esquecer)
-        userLastProcessTime[chatId] = Date.now();
+        const historyMedia = await fetchRecentItems(chat, 'media', lastTime, commandTime);
 
-        // Inclui a mensagem citada se existir
+        // ATUALIZA O TEMPO PARA O HORÁRIO DESTE COMANDO
+        userLastProcessTime[chatId] = commandTime; // Importante: Atualiza ANTES de processar para garantir a janela
+
+        // Inclui a mensagem citada apenas se ela for NOVA (dentro da janela) ou explicitamente citada
+        // Se for explicitamente citada, ignoramos a janela para ela
         let quotedMediaMsg = null;
         if (msg.hasQuotedMsg) {
             const quoted = await msg.getQuotedMessage();
@@ -241,13 +250,12 @@ client.on('message', async msg => {
         }
 
         const allMediaMsgs = quotedMediaMsg ? [...historyMedia, quotedMediaMsg] : historyMedia;
-        // Filtra duplicados por ID se necessário, mas msg objects são complexos, vamos confiar na lista
-
+        // Filtra duplicados por ID
         const uniqueMedia = allMediaMsgs.filter((m, index, self) =>
             index === self.findIndex((t) => (t.id.id === m.id.id))
         );
 
-        if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia encontrada nos últimos 5 minutos.');
+        if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia nova encontrada após o último comando.');
 
         userStates[chatId] = { step: 'BATCH_CONVERSION', msgs: uniqueMedia };
         msg.reply(`Encontrei ${uniqueMedia.length} mídia(s). 🔄\nEscolha:\n1. MP3 (Áudio)`);
