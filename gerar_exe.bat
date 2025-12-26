@@ -15,8 +15,13 @@ echo ===========================================
 echo           CONCLUIDO!
 echo ===========================================
 echo O arquivo esta na pasta 'dist/bot_whatsapp.exe'
+copy LEIA_ME_ERROS.md dist\LEIA_ME.txt >nul
 echo.
-echo !IMPORTANTE!: Se o bot nao abrir, certifique-se que
-echo o Google Chrome esta instalado no seu computador.
+echo.
+echo !IMPORTANTE!: Se o bot nao abrir ou o arquivo SUMIR,
+echo e provavel que seu ANTIVIRUS (Windows Defender) tenha removido.
+echo Adicione a pasta 'dist' as EXCECOES do seu Antivirus.
+echo.
+echo Certifique-se tambem que o Google Chrome esta instalado.
 echo.
 pause

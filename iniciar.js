@@ -6,6 +6,13 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const ffmpeg = require('fluent-ffmpeg');
+
+// --- CORREÇÃO DE PATH PARA PKG (EXECUTÁVEL) ---
+// Quando rodamos via EXE, __dirname é virtual (C:\snapshot\...) e não pode ser escrito.
+// Usamos process.execPath para pegar a pasta real do executável.
+const isPkg = typeof process.pkg !== 'undefined';
+const rootDir = isPkg ? path.dirname(process.execPath) : __dirname;
+
 // const googleTTS = require('google-tts-api'); // Substituído por Edge TTS
 const mime = require('mime-types');
 
@@ -70,7 +77,8 @@ console.log(`\n🖥️ Sistema detectado: ${isWindows ? 'Windows (PC)' : (isTerm
 // --- CONFIGURAÇÃO DO FFMPEG ---
 let ffmpegPath;
 
-const isPkg = typeof process.pkg !== 'undefined';
+// const isPkg = typeof process.pkg !== 'undefined'; // Já declarado no topo
+
 
 try {
     if (isPkg) {
@@ -190,7 +198,7 @@ const client = new Client({
 });
 
 // Estado em memória
-const memoryFile = path.join(__dirname, 'process_memory.json');
+const memoryFile = path.join(rootDir, 'process_memory.json');
 let userStates = {};
 let pendingTTS = {}; // Novo estado para /falar
 let userLastProcessTime = {};
@@ -288,7 +296,7 @@ const convertMp3ToOgg = (inputPath) => {
 
 const systemCleanUp = () => {
     // 1. Limpa pasta temp
-    const tempDir = path.join(__dirname, 'temp');
+    const tempDir = path.join(rootDir, 'temp');
     if (fs.existsSync(tempDir)) {
         try {
             fs.rmSync(tempDir, { recursive: true, force: true });
@@ -298,7 +306,7 @@ const systemCleanUp = () => {
 
     // 2. Limpa cache do WWebJS (previne erros de manifesto/versão)
     // NÃO limpamos a pasta .wwebjs_auth para manter a sessão
-    const cacheDir = path.join(__dirname, '.wwebjs_cache');
+    const cacheDir = path.join(rootDir, '.wwebjs_cache');
     if (fs.existsSync(cacheDir)) {
         try {
             fs.rmSync(cacheDir, { recursive: true, force: true });
@@ -376,7 +384,7 @@ const messageHandler = async (msg) => {
 
                 await msg.react('🗣️');
                 try {
-                    const tempMp3 = path.join(__dirname, 'temp', `tts_${Date.now()}.mp3`);
+                    const tempMp3 = path.join(rootDir, 'temp', `tts_${Date.now()}.mp3`);
 
                     // 1. Baixa MP3
                     await downloadElevenLabsAudio(textToSpeak, selectedVoice, tempMp3);
@@ -502,7 +510,7 @@ const messageHandler = async (msg) => {
             msg.reply(`⚠️ Apenas formato MP3 disponível. Iniciando conversão de ${uniqueMedia.length} mídia(s)...`);
 
             const { convertMedia } = require('./mediaHelpers');
-            const tempDir = path.join(__dirname, 'temp');
+            const tempDir = path.join(rootDir, 'temp');
 
             for (const mediaMsg of uniqueMedia) {
                 await new Promise(r => setTimeout(r, 2000));
@@ -537,7 +545,7 @@ const messageHandler = async (msg) => {
             if (isTermux && fs.existsSync('/data/data/com.termux/files/usr/bin/yt-dlp')) {
                 ytDlpWrap.setBinaryPath('/data/data/com.termux/files/usr/bin/yt-dlp');
             } else {
-                const binaryPath = path.join(__dirname, binaryName);
+                const binaryPath = path.join(rootDir, binaryName);
                 ytDlpWrap.setBinaryPath(binaryPath);
                 if (!fs.existsSync(binaryPath)) {
                     try {
@@ -564,7 +572,7 @@ const messageHandler = async (msg) => {
                 delete userStates[chatId];
 
                 msg.reply(`⏳ Iniciando download de ${links.length} arquivo(s)...`);
-                const tempDir = path.join(__dirname, 'temp');
+                const tempDir = path.join(rootDir, 'temp');
 
                 for (const link of links) {
                     await new Promise(r => setTimeout(r, 2000));
