@@ -121,6 +121,7 @@ if (fs.existsSync(memoryFile)) {
 const saveMemory = () => {
     try {
         fs.writeFileSync(memoryFile, JSON.stringify(userLastProcessTime, null, 2));
+        console.log('💾 Memória salva.');
     } catch (e) {
         console.error('⚠️ Falha ao salvar memória:', e);
     }
@@ -204,10 +205,15 @@ client.on('message', async msg => {
         const start = minTimestamp || 0;
         const end = maxTimestamp || Date.now();
 
+        console.log(`\n🔍 FetchRecentItems:`);
+        console.log(`   - Start (LastTime): ${start}`);
+        console.log(`   - End (CommandTime): ${end}`);
+
         // Filtra mensagens estritamente dentro da janela
         const recentMsgs = history.filter(m => {
             const msgTime = m.timestamp * 1000;
-            return msgTime > start && msgTime <= end && !m.fromMe;
+            const inWindow = msgTime > start && msgTime <= end && !m.fromMe;
+            return inWindow;
         });
 
         if (type === 'links') {
@@ -257,6 +263,10 @@ client.on('message', async msg => {
         // Janela de Tempo: Do último comando até AGORA
         const lastTime = userLastProcessTime[chatId] || 0;
         const commandTime = msg.timestamp * 1000;
+
+        console.log(`\n🤖 Comando /converter de: ${chatId}`);
+        console.log(`   - LastTime em memória: ${lastTime}`);
+        console.log(`   - CommandTime atual: ${commandTime}`);
 
         const historyMedia = await fetchRecentItems(chat, 'media', lastTime, commandTime);
 
