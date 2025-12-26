@@ -6,34 +6,40 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const ffmpeg = require('fluent-ffmpeg');
+
+// --- CONFIGURAÇÃO DO FFMPEG ---
 let ffmpegPath;
 try {
     ffmpegPath = require('ffmpeg-static');
 } catch (e) {
     console.log('⚠️ ffmpeg-static não encontrado, usando ffmpeg do sistema.');
-    ffmpegPath = 'ffmpeg';
+    ffmpegPath = 'ffmpeg'; // No Termux, geralmente ele acha pelo nome
 }
-
-// Configurar ffmpeg
 ffmpeg.setFfmpegPath(ffmpegPath);
 console.log('FFmpeg Path:', ffmpegPath);
 
 // Estado em memória
 const userStates = {};
 
+// --- CONFIGURAÇÃO DO CLIENTE (CORRIGIDA PARA TERMUX) ---
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
+        executablePath: '/data/data/com.termux/files/usr/bin/chromium', // Caminho do Chromium no Termux
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--disk-cache-size=0',
-            '--disable-application-cache',
-            '--disable-offline-load-stale-cache'
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process', // Importante para evitar travamentos no Android
+            '--headless'        // Roda sem interface gráfica
         ]
     }
 });
 
+// --- GERAÇÃO DO QR CODE ---
 client.on('qr', (qr) => {
     qrcode.toFile('./qr.png', qr, {
         color: {
@@ -42,29 +48,31 @@ client.on('qr', (qr) => {
         }
     }, function (err) {
         if (err) throw err;
-        console.log('QR Code recebido! Um arquivo "qr.png" foi criado na pasta do projeto.');
-        console.log('Por favor, abra o arquivo "qr.png" e escaneie com seu WhatsApp.');
+        console.log('\n✅ QR Code gerado com sucesso!');
+        console.log('📂 Arquivo criado: ' + path.join(__dirname, 'qr.png'));
+        console.log('⚠️  DICA: Abra esse arquivo na galeria ou copie para o PC para escanear.\n');
     });
 });
 
 client.on('ready', () => {
     console.log('\n==================================================');
-    console.log('🤖 BOT ONLINE E PRONTO PARA USO!');
+    console.log('🤖 BOT ONLINE E PRONTO PARA USO NO TERMUX!');
     console.log('==================================================');
-    console.log('\n📋 Comandos Disponíveis no WhatsApp:');
-    console.log('   ➤ Envie um link do YouTube -> Baixar vídeo/áudio');
+    console.log('\n📋 Comandos Disponíveis:');
+    console.log('   ➤ /baixar (link) -> Baixar vídeo/áudio');
     console.log('   ➤ /amor (respondendo mídia) -> Converter arquivo');
-    console.log('   ➤ /ajuda -> Ver menu completo no chat');
-    console.log('\n💻 Comandos do Terminal:');
-    console.log('   ➤ Ctrl + C -> Parar o bot');
-    console.log('   ➤ npm run limpar -> Limpar arquivos temporários');
+    console.log('   ➤ /ajuda -> Ver menu completo');
     console.log('\n==================================================\n');
 });
+
+// --- FUNÇÕES UTILITÁRIAS ---
 
 // Limpeza de cache/temp na inicialização
 const cleanTempFolder = () => {
     const tempDir = path.join(__dirname, 'temp');
-    if (fs.existsSync(tempDir)) {
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir); // Cria se não existir
+    } else {
         fs.readdirSync(tempDir).forEach(file => {
             const curPath = path.join(tempDir, file);
             try { fs.unlinkSync(curPath); } catch (e) { }
@@ -79,40 +87,39 @@ const isYoutubeLink = (text) => {
     return match ? match[0] : null;
 };
 
-const formatBytes = (bytes, decimals = 2) => {
-    if (!+bytes) return '0 Bytes';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-};
-
-// Verificar binário
+// Verificar binário yt-dlp
 (async () => {
     const isWindows = os.platform() === 'win32';
     const binaryName = isWindows ? 'yt-dlp.exe' : 'yt-dlp';
-    const binaryPath = path.join(__dirname, binaryName);
-    ytDlpWrap.setBinaryPath(binaryPath);
 
-    if (!fs.existsSync(binaryPath)) {
-        console.log('⚠️  Binário yt-dlp não encontrado. Baixando versão mais recente...');
-        try {
-            await YTDlpWrap.downloadFromGithub(binaryPath);
-            console.log('✅ yt-dlp baixado com sucesso!');
-        } catch (e) {
-            console.error('❌ Erro ao baixar yt-dlp:', e);
-        }
+    // Tenta usar o do sistema primeiro (instalado via pip no Termux)
+    if (fs.existsSync('/data/data/com.termux/files/usr/bin/yt-dlp')) {
+        ytDlpWrap.setBinaryPath('/data/data/com.termux/files/usr/bin/yt-dlp');
+        console.log('✅ Usando yt-dlp do sistema Termux.');
     } else {
-        console.log('✅ Binário yt-dlp encontrado.');
+        // Fallback para baixar o binário localmente
+        const binaryPath = path.join(__dirname, binaryName);
+        ytDlpWrap.setBinaryPath(binaryPath);
+
+        if (!fs.existsSync(binaryPath)) {
+            console.log('⚠️ Binário yt-dlp não encontrado. Baixando versão mais recente...');
+            try {
+                await YTDlpWrap.downloadFromGithub(binaryPath);
+                fs.chmodSync(binaryPath, '755'); // Dá permissão de execução
+                console.log('✅ yt-dlp baixado com sucesso!');
+            } catch (e) {
+                console.error('❌ Erro ao baixar yt-dlp:', e);
+            }
+        } else {
+            console.log('✅ Binário yt-dlp local encontrado.');
+        }
     }
 })();
 
+// --- LÓGICA DE MENSAGENS ---
 client.on('message', async msg => {
     const chatId = msg.from;
     const text = msg.body.trim();
-
-
 
     // Cancelar
     if (text.toLowerCase() === '!cancelar') {
@@ -183,8 +190,7 @@ client.on('message', async msg => {
         return;
     }
 
-    // COMANDO 2: CONVERTER MÍDIA (/converter ou @converter)
-    // Antigo /amor agora é /converter, mas mantendo compatibilidade se quiser
+    // COMANDO 2: CONVERTER MÍDIA (/converter ou @converter ou /amor)
     if (['/converter', '@converter', '!converter', '/amor', '@amor'].includes(text.toLowerCase().split(' ')[0])) {
 
         let targetMsgs = [];
@@ -254,7 +260,7 @@ client.on('message', async msg => {
                         '-o', path.join(tempDir, `${baseFilename}.%(ext)s`),
                         '--no-check-certificates',
                         '--prefer-free-formats',
-                        '--ffmpeg-location', path.dirname(ffmpegPath)
+                        '--ffmpeg-location', path.dirname(ffmpegPath) || 'ffmpeg'
                     ];
                 } else {
                     args = [
@@ -264,7 +270,7 @@ client.on('message', async msg => {
                         '-o', path.join(tempDir, `${baseFilename}.%(ext)s`),
                         '--no-check-certificates',
                         '--prefer-free-formats',
-                        '--ffmpeg-location', path.dirname(ffmpegPath)
+                        '--ffmpeg-location', path.dirname(ffmpegPath) || 'ffmpeg'
                     ];
                 }
 
@@ -282,6 +288,7 @@ client.on('message', async msg => {
                         caption: `(${index + 1}/${links.length}) ta ai gatona! 😺`
                     });
 
+                    // Deleta após enviar
                     setTimeout(() => { try { fs.unlinkSync(filePath); } catch (e) { } }, 10000);
                 } else {
                     client.sendMessage(chatId, `❌ Erro no download do item ${index + 1}`);
