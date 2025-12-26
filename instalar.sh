@@ -8,8 +8,8 @@ echo "📦 Atualizando sistema..."
 pkg update -y && pkg upgrade -y
 
 # 2. Instalar dependências essenciais
-echo "🛠️ Instalando ferramentas (Node, Git, FFmpeg, Python)..."
-pkg install nodejs git ffmpeg python -y
+echo "🛠️ Instalando ferramentas (Node, Git, FFmpeg, Python, Libwebp, Build Tools)..."
+pkg install nodejs git ffmpeg python libwebp clang make binutils -y
 
 # 3. Configurar armazenamento
 echo "📂 Configurando permissões de armazenamento..."
@@ -24,6 +24,10 @@ if [ -f "package.json" ]; then
     # Fix para Android: Remove ffmpeg-static que não é compatível
     if grep -q "com.termux" <<< "$PREFIX"; then
         echo "📱 Detectado Android/Termux: Tentando corrigir dependências..."
+        
+        # Pula o download do Chrome pelo Puppeteer (usa o do Termux)
+        export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+        export PUPPETEER_SKIP_DOWNLOAD=true
         
         # 1. Remove ffmpeg-static do package.json se existir
         if grep -q "ffmpeg-static" package.json; then
