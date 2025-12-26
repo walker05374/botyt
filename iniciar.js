@@ -10,7 +10,8 @@ const ffmpeg = require('fluent-ffmpeg');
 // --- DETECÇÃO DO SISTEMA ---
 // Verifica se é Windows ou Termux para ajustar configurações
 const isWindows = os.platform() === 'win32';
-const isTermux = !isWindows && fs.existsSync('/data/data/com.termux/files/usr/bin/chromium');
+// Detecção mais robusta para Termux (Android)
+const isTermux = os.platform() === 'android' || (!isWindows && fs.existsSync('/data/data/com.termux/files/usr/bin/chromium'));
 
 console.log(`\n🖥️ Sistema detectado: ${isWindows ? 'Windows (PC)' : (isTermux ? 'Android (Termux)' : 'Linux')}`);
 
@@ -27,7 +28,17 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 // --- BUSCA AUTOMÁTICA DO NAVEGADOR (CHROME) ---
 let chromePath;
 if (isTermux) {
-    chromePath = '/data/data/com.termux/files/usr/bin/chromium';
+    // No Termux, o Chromium é OBRIGATÓRIO
+    const termuxChromiumPath = '/data/data/com.termux/files/usr/bin/chromium';
+    if (fs.existsSync(termuxChromiumPath)) {
+        chromePath = termuxChromiumPath;
+    } else {
+        console.error('\n❌ ERRO CRÍTICO: Chromium não encontrado no Termux!');
+        console.error('👉 Para corrigir, execute este comando no Termux:');
+        console.error('   pkg install chromium');
+        console.error('Depois tente rodar o bot novamente.\n');
+        process.exit(1);
+    }
 } else if (isWindows) {
     // Tenta achar o Chrome ou Edge no Windows automaticamente
     const possiblePaths = [
