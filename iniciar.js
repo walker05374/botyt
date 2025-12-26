@@ -175,7 +175,7 @@ client.on('message', async msg => {
 
     // Função auxiliar para buscar itens no histórico (7 minutos)
     const fetchRecentItems = async (chat, type) => {
-        const history = await chat.fetchMessages({ limit: 50 }); // Busca 50 para garantir
+        const history = await chat.fetchMessages({ limit: 20 }); // OTIMIZAÇÃO: 50 -> 20 para ser rápido no Termux
         const limitTime = Date.now() - (7 * 60 * 1000); // 7 minutos atrás
 
         // Filtra mensagens recentes do usuário (ou todas se for grupo e quiser pegar de todos)
@@ -199,6 +199,7 @@ client.on('message', async msg => {
 
     // COMANDO BAIXAR (Lote com histórico de 7 min)
     if (text.toLowerCase().startsWith('/baixar') || text.toLowerCase().startsWith('@baixar')) {
+        await msg.react('🔎'); // Feedback instantâneo
         const currentLinks = getYoutubeLinks(text); // Links na própria msg do comando
         const chat = await msg.getChat();
         const historyLinks = await fetchRecentItems(chat, 'links');
@@ -214,6 +215,7 @@ client.on('message', async msg => {
 
     // COMANDO CONVERTER (Lote com histórico de 7 min)
     if (text.toLowerCase().startsWith('/converter') || text.toLowerCase().startsWith('@converter')) {
+        await msg.react('🔎'); // Feedback instantâneo
         const chat = await msg.getChat();
         const historyMedia = await fetchRecentItems(chat, 'media');
 
