@@ -169,14 +169,14 @@ client.on('message', async msg => {
     }
 
     if (['/ajuda', '!ajuda'].includes(text.toLowerCase())) {
-        msg.reply('🤖 Comandos:\n1. */baixar* (ou @baixar) após enviar links\n2. */converter* (ou @converter) após enviar midias\n\nO bot olha os últimos 7 minutos de conversa.');
+        msg.reply('🤖 Comandos:\n1. */baixar* (ou @baixar) após enviar links\n2. */converter* (ou @converter) após enviar midias\n\nO bot olha os últimos 5 minutos de conversa.');
         return;
     }
 
-    // Função auxiliar para buscar itens no histórico (7 minutos)
+    // Função auxiliar para buscar itens no histórico (5 minutos)
     const fetchRecentItems = async (chat, type) => {
-        const history = await chat.fetchMessages({ limit: 20 }); // OTIMIZAÇÃO: 50 -> 20 para ser rápido no Termux
-        const limitTime = Date.now() - (7 * 60 * 1000); // 7 minutos atrás
+        const history = await chat.fetchMessages({ limit: 50 }); // Aumentei para 50 para garantir
+        const limitTime = Date.now() - (5 * 60 * 1000); // 5 minutos atrás
 
         // Filtra mensagens recentes do usuário (ou todas se for grupo e quiser pegar de todos)
         const recentMsgs = history.filter(m => {
@@ -206,7 +206,7 @@ client.on('message', async msg => {
 
         const allLinks = [...new Set([...currentLinks, ...historyLinks])];
 
-        if (allLinks.length === 0) return msg.reply('⚠️ Nenhum link do YouTube encontrado nos últimos 7 minutos.');
+        if (allLinks.length === 0) return msg.reply('⚠️ Nenhum link do YouTube encontrado nos últimos 5 minutos.');
 
         userStates[chatId] = { step: 'BATCH_DOWNLOAD', links: allLinks };
         msg.reply(`Encontrei ${allLinks.length} link(s). 📥\nEscolha:\n1. MP3 (Áudio)\n2. MP4 (Melhor Qualidade)\n3. MP4 (720p)\n4. MP4 (360p Leve)`);
@@ -233,7 +233,7 @@ client.on('message', async msg => {
             index === self.findIndex((t) => (t.id.id === m.id.id))
         );
 
-        if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia encontrada nos últimos 7 minutos.');
+        if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia encontrada nos últimos 5 minutos.');
 
         userStates[chatId] = { step: 'BATCH_CONVERSION', msgs: uniqueMedia };
         msg.reply(`Encontrei ${uniqueMedia.length} mídia(s). 🔄\nEscolha o formato:\n1. MP3\n2. OGG\n3. WAV\n4. MP4`);
@@ -287,6 +287,7 @@ client.on('message', async msg => {
             const tempDir = path.join(__dirname, 'temp');
             // Loop para baixar todos
             for (const link of links) {
+                await new Promise(r => setTimeout(r, 2000)); // Delay para evitar bloqueio
                 try {
                     const baseFilename = `dl_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
@@ -330,6 +331,7 @@ client.on('message', async msg => {
             const tempDir = path.join(__dirname, 'temp');
 
             for (const mediaMsg of msgs) {
+                await new Promise(r => setTimeout(r, 2000)); // Delay para evitar bloqueio
                 try {
                     const media = await mediaMsg.downloadMedia();
                     if (!media) continue;

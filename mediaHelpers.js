@@ -15,6 +15,7 @@ const convertMedia = (inputPath, format, ffmpegPath) => {
         // Configurações básicas de conversão
         if (format === 'mp3') {
             command.toFormat('mp3');
+            command.audioCodec('libmp3lame');
         } else if (format === 'ogg') {
             command.toFormat('ogg'); // OGG Opus para áudio do WhatsApp
             command.audioCodec('libopus');
