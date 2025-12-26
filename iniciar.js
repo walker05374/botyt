@@ -177,6 +177,42 @@ const getYoutubeLinks = (text) => {
     return [...text.matchAll(regex)].map(m => m[0]);
 };
 
+// --- FUNÇÕES DE LÓGICA (Extraídas para Global para Testes) ---
+
+// Função auxiliar para buscar itens no histórico (Janela estrita: > minTimestamp e <= maxTimestamp)
+const fetchRecentItems = async (chat, type, minTimestamp, maxTimestamp) => {
+    const history = await chat.fetchMessages({ limit: 50 });
+
+    // Se não tiver minTimestamp, assume muito antigo (0)
+    // Se não tiver maxTimestamp, assume agora
+    const start = minTimestamp || 0;
+    const end = maxTimestamp || Date.now();
+
+    console.log(`\n🔍 FetchRecentItems:`);
+    console.log(`   - Start (LastTime): ${start}`);
+    console.log(`   - End (CommandTime): ${end}`);
+
+    // Filtra mensagens estritamente dentro da janela
+    const recentMsgs = history.filter(m => {
+        const msgTime = m.timestamp * 1000;
+        const inWindow = msgTime > start && msgTime <= end && !m.fromMe;
+        return inWindow;
+    });
+
+    if (type === 'links') {
+        const links = [];
+        recentMsgs.forEach(m => {
+            const found = getYoutubeLinks(m.body);
+            links.push(...found);
+        });
+        return [...new Set(links)]; // Remove duplicados
+    } else if (type === 'media') {
+        return recentMsgs.filter(m => m.hasMedia);
+    }
+    return [];
+};
+
+
 // --- MENSAGENS E COMANDOS ---
 client.on('message', async msg => {
     const chatId = msg.from;
@@ -195,39 +231,6 @@ client.on('message', async msg => {
         msg.reply('🤖 Comandos:\n1. */baixar* (ou @baixar) após enviar links\n2. */converter* (ou @converter) após enviar midias\n\nO bot processa apenas o que foi enviado APÓS o último comando.');
         return;
     }
-
-    // Função auxiliar para buscar itens no histórico (Janela estrita: > minTimestamp e <= maxTimestamp)
-    const fetchRecentItems = async (chat, type, minTimestamp, maxTimestamp) => {
-        const history = await chat.fetchMessages({ limit: 50 });
-
-        // Se não tiver minTimestamp, assume muito antigo (0)
-        // Se não tiver maxTimestamp, assume agora
-        const start = minTimestamp || 0;
-        const end = maxTimestamp || Date.now();
-
-        console.log(`\n🔍 FetchRecentItems:`);
-        console.log(`   - Start (LastTime): ${start}`);
-        console.log(`   - End (CommandTime): ${end}`);
-
-        // Filtra mensagens estritamente dentro da janela
-        const recentMsgs = history.filter(m => {
-            const msgTime = m.timestamp * 1000;
-            const inWindow = msgTime > start && msgTime <= end && !m.fromMe;
-            return inWindow;
-        });
-
-        if (type === 'links') {
-            const links = [];
-            recentMsgs.forEach(m => {
-                const found = getYoutubeLinks(m.body);
-                links.push(...found);
-            });
-            return [...new Set(links)]; // Remove duplicados
-        } else if (type === 'media') {
-            return recentMsgs.filter(m => m.hasMedia);
-        }
-        return [];
-    };
 
     // COMANDO BAIXAR (Lote com histórico de 7 min)
     if (text.toLowerCase().startsWith('/baixar') || text.toLowerCase().startsWith('@baixar')) {
@@ -421,4 +424,17 @@ client.on('message', async msg => {
 
 });
 
-client.initialize();
+// Inicialização Condicional
+if (require.main === module) {
+    client.initialize();
+} else {
+    // Exporta para testes
+    module.exports = {
+        fetchRecentItems,
+        saveMemory,
+        userLastProcessTime,
+        getYoutubeLinks,
+        isWindows,
+        isTermux
+    };
+}
