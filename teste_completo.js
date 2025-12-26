@@ -8,11 +8,11 @@ const mockChat = {
         // Gera algumas mensagens com timestamps diferentes
         const nowSec = Math.floor(Date.now() / 1000);
         return [
-            { id: { _serialized: 'old_1' }, body: 'https://youtube.com/watch?v=old', timestamp: nowSec - 600, fromMe: false }, // 10 min atrás
-            { id: { _serialized: 'old_2' }, body: 'https://youtube.com/watch?v=recent', timestamp: nowSec - 60, fromMe: false }, // 1 min atrás
-            { id: { _serialized: 'future' }, body: 'https://youtube.com/watch?v=future', timestamp: nowSec + 10, fromMe: false }, // Futuro (teste)
+            { id: { _serialized: 'old_1' }, body: 'https://youtube.com/watch?v=old', timestamp: nowSec - 600, fromMe: false },
+            { id: { _serialized: 'insta_1' }, body: 'Olha isso https://instagram.com/p/12345', timestamp: nowSec - 60, fromMe: false },
+            { id: { _serialized: 'tiktok_1' }, body: 'https://www.tiktok.com/@user/video/789', timestamp: nowSec + 10, fromMe: false },
+            { id: { _serialized: 'bad_link' }, body: 'https://evil-site.com/malware', timestamp: nowSec - 20, fromMe: false },
             { id: { _serialized: 'media_1' }, body: '', hasMedia: true, type: 'image', mimetype: 'image/jpeg', timestamp: nowSec - 100, fromMe: false },
-            { id: { _serialized: 'media_2' }, body: '', hasMedia: true, type: 'video', mimetype: 'video/mp4', timestamp: nowSec - 60, fromMe: false }
         ];
     }
 };
@@ -115,6 +115,23 @@ async function runTests() {
     if (itemsC.length === 0) console.log('   ✅ Passou (Janela limpa, não pegou velharias)');
     else console.error('   ❌ Falhou (Pegou item antigo!)');
 
+
+
+    // [4] Teste da Função extractLinks
+    console.log('\n[4] Testando Extração Universal de Links (Youtube/Insta/TikTok)...');
+
+    const textSample = "Oi veja isso https://www.youtube.com/watch?v=123 e esse https://instagram.com/reel/abc também. Ignorar https://malware.com";
+    const extracted = extractLinks(textSample);
+    console.log(`   Texto: "${textSample}"`);
+    console.log(`   Links extraídos:`, extracted);
+
+    if (extracted.includes('https://www.youtube.com/watch?v=123') &&
+        extracted.includes('https://instagram.com/reel/abc') &&
+        !extracted.includes('https://malware.com')) {
+        console.log('   ✅ Passou (Pegou Youtube/Insta e ignorou lixo)');
+    } else {
+        console.error('   ❌ Falhou na extração');
+    }
 
     console.log('\n==============================================');
     console.log('🏁 FIM DO TESTE');
