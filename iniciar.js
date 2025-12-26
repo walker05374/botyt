@@ -255,8 +255,21 @@ client.on('message', async msg => {
             index === self.findIndex((t) => (t.id.id === m.id.id))
         );
 
-        // FILTRO DE SEGURANÇA: Apenas Áudio e Vídeo (Ignora imagens/stickers e undefined)
-        uniqueMedia = uniqueMedia.filter(m => m.mimetype && (m.mimetype.startsWith('audio/') || m.mimetype.startsWith('video/')));
+        // DEBUG: Mostra o que o bot está vendo
+        console.log(`\n🔍 Analisando ${uniqueMedia.length} mensagens candidatas:`);
+        uniqueMedia.forEach(m => {
+            console.log(`- ID: ${m.id._serialized} | Tipo: ${m.type} | Mime: ${m.mimetype} | Tempo: ${m.timestamp}`);
+        });
+
+        // FILTRO DE SEGURANÇA MAIS ROBUSTO
+        // Aceita se tiver mimetype correto OU se o 'type' do whats for video/audio/ptt
+        uniqueMedia = uniqueMedia.filter(m => {
+            const isVideo = (m.mimetype && m.mimetype.startsWith('video/')) || m.type === 'video';
+            const isAudio = (m.mimetype && m.mimetype.startsWith('audio/')) || m.type === 'audio' || m.type === 'ptt' || m.type === 'voice';
+            return isVideo || isAudio;
+        });
+
+        console.log(`👉 Após filtro: ${uniqueMedia.length} mídias válidas.`);
 
         if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia de áudio ou vídeo nova encontrada após o último comando.');
 
