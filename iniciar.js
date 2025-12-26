@@ -278,11 +278,8 @@ const messageHandler = async (msg) => {
 
             const allMediaMsgs = quotedMediaMsg ? [...historyMedia, quotedMediaMsg] : historyMedia;
 
-            // DEBUG: Ver o que o bot está enxergando
-            console.log(`\n🔍 Analisando ${allMediaMsgs.length} mensagens...`);
-            allMediaMsgs.forEach((m, i) => {
-                console.log(`[${i}] Tipo: ${m.type} | Mime: ${m.mimetype} | Nome: ${m.filename || 'sem nome'} | Data: ${m.timestamp}`);
-            });
+            // DEBUG: Ver o que o bot está enxergando (Removido para produção)
+            // console.log(`\n🔍 Analisando ${allMediaMsgs.length} mensagens...`);
 
             let uniqueMedia = allMediaMsgs.filter((m, index, self) =>
                 index === self.findIndex((t) => (t.id.id === m.id.id))
@@ -314,7 +311,7 @@ const messageHandler = async (msg) => {
                 }
 
                 const aceito = isVideo || isAudio || isDocumentMedia;
-                console.log(`[FILTER] ID: ${m.id._serialized.slice(0, 5)}... | Mime: ${mime} | Tipo: ${m.type} | DocMedia: ${isDocumentMedia} -> ${aceito ? 'ACEITO' : 'REJEITADO'}`);
+                // Log removido para produção
                 return aceito;
             });
 
@@ -391,11 +388,24 @@ const messageHandler = async (msg) => {
                     await new Promise(r => setTimeout(r, 2000));
                     try {
                         const baseFilename = `dl_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-                        let args = [link, ...selectedOption.args, '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
+                        let args;
+                        // Para YouTube, usamos o seletor complexo
+                        if (link.includes('youtube.com') || link.includes('youtu.be')) {
+                            args = [link, ...selectedOption.args, '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
+                        } else {
+                            // Para Insta, TikTok, Facebook, usamos seletor simples (best) para evitar erro de formato
+                            if (selectedOption.type === 'audio') {
+                                args = [link, '-x', '--audio-format', 'mp3', '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
+                            } else {
+                                args = [link, '-f', 'best', '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
+                            }
+                        }
 
-                        if (!link.includes('youtube.com') && !link.includes('youtu.be') && selectedOption.type === 'audio') {
+                        // Override específico para áudio do youtube se já nao caiu no if de cima
+                        if ((link.includes('youtube.com') || link.includes('youtu.be')) && selectedOption.type === 'audio') {
                             args = [link, '-x', '--audio-format', 'mp3', '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
                         }
+
                         if (ffmpegPath !== 'ffmpeg') {
                             args.push('--ffmpeg-location', path.dirname(ffmpegPath));
                         }
