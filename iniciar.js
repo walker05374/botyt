@@ -32,7 +32,7 @@ let chromePath;
 const which = (cmd) => {
     try {
         const { execSync } = require('child_process');
-        return execSync(`which ${cmd}`).toString().trim();
+        return execSync(`which ${cmd} 2>/dev/null`).toString().trim();
     } catch (e) {
         return null;
     }
@@ -106,16 +106,23 @@ const userStates = {};
 
 // --- GERAÇÃO DO QR CODE ---
 client.on('qr', (qr) => {
+    // Exibe o QR Code no terminal (Opção mais fácil)
+    console.log('\n⌛ Gerando QR Code no terminal...\n');
+    qrcode.toString(qr, { type: 'terminal', small: true }, function (err, url) {
+        if (err) console.error(err);
+        console.log(url); // Imprime o QR Art
+    });
+
+    // Salva arquivo qr.png (Backup)
     qrcode.toFile('./qr.png', qr, {
         color: { dark: '#000000', light: '#FFFFFF' }
     }, function (err) {
         if (err) throw err;
-        console.log('\n✅ QR Code gerado!');
-        console.log('📂 Arquivo: qr.png');
+        console.log('\n✅ QR Code também salvo como imagem: qr.png');
         if (isWindows) {
-            console.log('💡 Dica: Abra a imagem qr.png na pasta para escanear.');
+            console.log('💡 Dica: Abra imagem qr.png se o terminal ficar ruim.');
         } else {
-            console.log('💡 Dica: No Termux, copie a imagem ou use o termux-open.');
+            console.log('💡 Dica: Use "termux-open qr.png" se preferir a imagem.');
         }
     });
 });
