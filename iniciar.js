@@ -173,6 +173,7 @@ cleanTempFolder();
 
 
 const getYoutubeLinks = (text) => {
+    if (!text) return [];
     const regex = /((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?/g;
     return [...text.matchAll(regex)].map(m => m[0]);
 };

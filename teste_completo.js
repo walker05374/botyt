@@ -8,11 +8,11 @@ const mockChat = {
         // Gera algumas mensagens com timestamps diferentes
         const nowSec = Math.floor(Date.now() / 1000);
         return [
-            { id: { _serialized: 'old_1' }, body: 'old link', timestamp: nowSec - 600, fromMe: false }, // 10 min atrás
-            { id: { _serialized: 'old_2' }, body: 'recent link', timestamp: nowSec - 60, fromMe: false }, // 1 min atrás
-            { id: { _serialized: 'future' }, body: 'future link', timestamp: nowSec + 10, fromMe: false }, // Futuro (teste)
-            { id: { _serialized: 'media_1' }, hasMedia: true, type: 'image', mimetype: 'image/jpeg', timestamp: nowSec - 100, fromMe: false },
-            { id: { _serialized: 'media_2' }, hasMedia: true, type: 'video', mimetype: 'video/mp4', timestamp: nowSec - 60, fromMe: false }
+            { id: { _serialized: 'old_1' }, body: 'https://youtube.com/watch?v=old', timestamp: nowSec - 600, fromMe: false }, // 10 min atrás
+            { id: { _serialized: 'old_2' }, body: 'https://youtube.com/watch?v=recent', timestamp: nowSec - 60, fromMe: false }, // 1 min atrás
+            { id: { _serialized: 'future' }, body: 'https://youtube.com/watch?v=future', timestamp: nowSec + 10, fromMe: false }, // Futuro (teste)
+            { id: { _serialized: 'media_1' }, body: '', hasMedia: true, type: 'image', mimetype: 'image/jpeg', timestamp: nowSec - 100, fromMe: false },
+            { id: { _serialized: 'media_2' }, body: '', hasMedia: true, type: 'video', mimetype: 'video/mp4', timestamp: nowSec - 60, fromMe: false }
         ];
     }
 };
