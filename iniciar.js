@@ -236,7 +236,7 @@ client.on('message', async msg => {
     }
 
     if (['/ajuda', '!ajuda'].includes(text.toLowerCase())) {
-        msg.reply('🤖 Comandos:\n1. */baixar* (ou @baixar) após enviar links\n2. */converter* (ou @converter) após enviar midias\n\nO bot processa apenas o que foi enviado APÓS o último comando.');
+        msg.reply('🤖 *Comandos do Bot:*\n\n1. */baixar* - Baixa vídeos/áudios (YouTube, Instagram, TikTok...)\n2. */converter* - Transforma vídeo/áudio em MP3\n3. */sticker* - Cria figurinha (mande foto/gif com legenda)\n4. */falar [frase]* - Cria áudio com voz do Google\n\n_Dica: O bot só processa o que você mandou DEPOIS do último comando._');
         return;
     }
 
