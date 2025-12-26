@@ -103,6 +103,7 @@ const client = new Client({
 
 // Estado em memória
 const userStates = {};
+const userLastProcessTime = {}; // Marca quando foi o último comando do usuário
 
 // --- GERAÇÃO DO QR CODE ---
 client.on('qr', (qr) => {
@@ -173,10 +174,11 @@ client.on('message', async msg => {
         return;
     }
 
-    // Função auxiliar para buscar itens no histórico (5 minutos)
-    const fetchRecentItems = async (chat, type) => {
-        const history = await chat.fetchMessages({ limit: 50 }); // Aumentei para 50 para garantir
-        const limitTime = Date.now() - (5 * 60 * 1000); // 5 minutos atrás
+    // Função auxiliar para buscar itens no histórico (5 minutos ou desde o último comando)
+    const fetchRecentItems = async (chat, type, minTimestamp) => {
+        const history = await chat.fetchMessages({ limit: 50 });
+        // Se tiver minTimestamp usa ele, senão usa 5 minutos atrás
+        const limitTime = minTimestamp || (Date.now() - (5 * 60 * 1000));
 
         // Filtra mensagens recentes do usuário (ou todas se for grupo e quiser pegar de todos)
         const recentMsgs = history.filter(m => {
@@ -202,7 +204,13 @@ client.on('message', async msg => {
         await msg.react('🔎'); // Feedback instantâneo
         const currentLinks = getYoutubeLinks(text); // Links na própria msg do comando
         const chat = await msg.getChat();
-        const historyLinks = await fetchRecentItems(chat, 'links');
+
+        // Pega data do último processamento ou 0
+        const lastTime = userLastProcessTime[chatId] || 0;
+        const historyLinks = await fetchRecentItems(chat, 'links', lastTime);
+
+        // ATUALIZA O TEMPO IMEDIATAMENTE (Consumir e esquecer)
+        userLastProcessTime[chatId] = Date.now();
 
         const allLinks = [...new Set([...currentLinks, ...historyLinks])];
 
@@ -217,7 +225,13 @@ client.on('message', async msg => {
     if (text.toLowerCase().startsWith('/converter') || text.toLowerCase().startsWith('@converter')) {
         await msg.react('🔎'); // Feedback instantâneo
         const chat = await msg.getChat();
-        const historyMedia = await fetchRecentItems(chat, 'media');
+
+        // Pega data do último processamento ou 0
+        const lastTime = userLastProcessTime[chatId] || 0;
+        const historyMedia = await fetchRecentItems(chat, 'media', lastTime);
+
+        // ATUALIZA O TEMPO IMEDIATAMENTE (Consumir e esquecer)
+        userLastProcessTime[chatId] = Date.now();
 
         // Inclui a mensagem citada se existir
         let quotedMediaMsg = null;
