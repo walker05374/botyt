@@ -6,9 +6,60 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const ffmpeg = require('fluent-ffmpeg');
-const googleTTS = require('google-tts-api'); // Módulo de voz adicionado
+// const googleTTS = require('google-tts-api'); // Substituído por Edge TTS
+const mime = require('mime-types');
 
-const mime = require('mime-types'); // Adicionado para garantir mime correto
+// --- IMPLEMENTAÇÃO ELEVENLABS (REALISTA) ---
+const { ElevenLabsClient } = require('@elevenlabs/elevenlabs-js');
+const elevenLabs = new ElevenLabsClient({ apiKey: 'sk_6dfa84b1616a8ddf625dc489cb11ae2802048db501cebacf' });
+
+// IDs das vozes (Padrão e Secundária)
+const VOICE_FEMALE = '21m00Tcm4TlvDq8ikWAM'; // Rachel (Mulher)
+const VOICE_MALE = 'pNInz6obpgDQGcFmaJgB';   // Adam (Homem)
+const VOICE_OLD_MALE = 'N2lVSneC4wXUNC156fE9'; // Marcus (Velho/Deep)
+const VOICE_OLD_FEMALE = 't0jbNlBVZ17f02VwhZ6Z'; // Nellie (Velha)
+const VOICE_KID_MALE = 'D38z5RcWu1voky8WSVqt'; // Fin (Menino)
+const VOICE_KID_FEMALE = 'EXAVITQu4vr4xnSDxMaL'; // Bella (Menina)
+
+// Função Helper local para download (HTTPS Nativo para evitar erros de Stream/Buffer)
+async function downloadElevenLabsAudio(text, voiceId, outputPath) {
+    return new Promise((resolve, reject) => {
+        const https = require('https');
+
+        const options = {
+            method: 'POST',
+            hostname: 'api.elevenlabs.io',
+            path: `/v1/text-to-speech/${voiceId}`,
+            headers: {
+                'xi-api-key': 'sk_6dfa84b1616a8ddf625dc489cb11ae2802048db501cebacf',
+                'Content-Type': 'application/json'
+            }
+        };
+
+        const req = https.request(options, (res) => {
+            if (res.statusCode !== 200) {
+                return reject(new Error(`ElevenLabs API Error: ${res.statusCode}`));
+            }
+
+            const fileStream = fs.createWriteStream(outputPath);
+            res.pipe(fileStream);
+
+            fileStream.on('finish', () => resolve(outputPath));
+            fileStream.on('error', reject);
+        });
+
+        req.on('error', reject);
+
+        req.write(JSON.stringify({
+            text: text,
+            model_id: 'eleven_multilingual_v2',
+            output_format: 'mp3_44100_128'
+        }));
+
+        req.end();
+    });
+}
+// ----------------------------------------------------
 
 // --- DETECÇÃO DO SISTEMA ---
 const isWindows = os.platform() === 'win32';
@@ -19,11 +70,28 @@ console.log(`\n🖥️ Sistema detectado: ${isWindows ? 'Windows (PC)' : (isTerm
 // --- CONFIGURAÇÃO DO FFMPEG ---
 let ffmpegPath;
 try {
-    ffmpegPath = require('ffmpeg-static');
+    const ffmpegStatic = require('ffmpeg-static');
+    if (ffmpegStatic) {
+        ffmpegPath = ffmpegStatic;
+    } else {
+        // Tenta achar manualmente se o require falhar
+        const manualPath = path.join(__dirname, 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
+        if (fs.existsSync(manualPath)) {
+            ffmpegPath = manualPath;
+        } else {
+            // Fallback para PATH global
+            ffmpegPath = 'ffmpeg';
+        }
+    }
 } catch (e) {
-    ffmpegPath = 'ffmpeg';
+    console.warn('⚠️ Erro ao carregar ffmpeg-static:', e.message);
+    const manualPath = path.join(__dirname, 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
+    ffmpegPath = fs.existsSync(manualPath) ? manualPath : 'ffmpeg';
 }
+
+// Configura o fluent-ffmpeg
 ffmpeg.setFfmpegPath(ffmpegPath);
+console.log(`\n🎞️ FFmpeg configurado: ${ffmpegPath}`);
 
 // --- BUSCA AUTOMÁTICA DO NAVEGADOR (CHROME) ---
 let chromePath;
@@ -97,6 +165,7 @@ const client = new Client({
 // Estado em memória
 const memoryFile = path.join(__dirname, 'process_memory.json');
 let userStates = {};
+let pendingTTS = {}; // Novo estado para /falar
 let userLastProcessTime = {};
 
 if (fs.existsSync(memoryFile)) {
@@ -155,6 +224,41 @@ client.on('ready', () => {
 });
 
 // --- FUNÇÕES UTILITÁRIAS ---
+const convertMp3ToOgg = (inputPath) => {
+    return new Promise((resolve, reject) => {
+        const { execFile } = require('child_process');
+        const outputPath = inputPath.replace('.mp3', '.ogg');
+
+        // Usa o ffmpegPath já resolvido globalmente
+        if (!ffmpegPath || ffmpegPath === 'ffmpeg') {
+            // Tenta resolver de novo se estiver genérico, ou aceita que vai falhar se não tiver no PATH
+            // Mas aqui vamos confiar que a lógica de start já definiu um path melhor se possível
+        }
+
+        const args = [
+            '-i', inputPath,
+            '-c:a', 'libopus',
+            '-b:a', '64k', // Bitrate razoável para voz
+            '-vn', // No video
+            '-y', // Overwrite
+            outputPath
+        ];
+
+        // Se ffmpegPath for 'ffmpeg' (fallback), usamos exec (shell) ou execFile com 'ffmpeg' se tiver no path
+        // Mas para garantir, vamos usar o binário direto se for caminho absoluto
+
+        console.log(`🛠️ Convertendo com: ${ffmpegPath}`);
+
+        execFile(ffmpegPath, args, (error, stdout, stderr) => {
+            if (error) {
+                console.error('Erro FFmpeg (execFile):', stderr);
+                return reject(error);
+            }
+            resolve(outputPath);
+        });
+    });
+};
+
 const systemCleanUp = () => {
     // 1. Limpa pasta temp
     const tempDir = path.join(__dirname, 'temp');
@@ -223,6 +327,57 @@ const messageHandler = async (msg) => {
         const text = msg.body ? msg.body.trim() : '';
 
         if (!text && !msg.hasMedia) return;
+
+        // --- INTERCEPTAÇÃO DE MENU DE VOZ (/falar) ---
+        if (pendingTTS[chatId]) {
+            const choice = parseInt(text);
+            if (!isNaN(choice) && choice >= 1 && choice <= 6) {
+                const voiceMap = {
+                    1: VOICE_FEMALE,     // Mulher
+                    2: VOICE_MALE,       // Homem
+                    3: VOICE_OLD_MALE,   // Velho
+                    4: VOICE_OLD_FEMALE, // Velha
+                    5: VOICE_KID_MALE,   // Menino
+                    6: VOICE_KID_FEMALE  // Menina
+                };
+
+                const selectedVoice = voiceMap[choice];
+                const textToSpeak = pendingTTS[chatId].text;
+
+                // Limpa estado
+                delete pendingTTS[chatId];
+
+                await msg.react('🗣️');
+                try {
+                    const tempMp3 = path.join(__dirname, 'temp', `tts_${Date.now()}.mp3`);
+
+                    // 1. Baixa MP3
+                    await downloadElevenLabsAudio(textToSpeak, selectedVoice, tempMp3);
+
+                    // Valida tamanho
+                    const stats = fs.statSync(tempMp3);
+                    if (stats.size < 100) throw new Error("Arquivo de áudio vazio ou corrompido.");
+
+                    // 2. Converte para OGG (PTT WhatsApp)
+                    const tempOgg = await convertMp3ToOgg(tempMp3);
+
+                    // 3. Envia OGG
+                    const media = MessageMedia.fromFilePath(tempOgg);
+                    await client.sendMessage(chatId, media, { sendAudioAsVoice: true });
+
+                    // Limpeza
+                    if (fs.existsSync(tempMp3)) fs.unlinkSync(tempMp3);
+                    if (fs.existsSync(tempOgg)) fs.unlinkSync(tempOgg);
+
+                } catch (e) {
+                    console.error('Erro TTS:', e);
+                    client.sendMessage(chatId, '❌ Erro ao gerar áudio.');
+                }
+                return; // Impede processamento de outros comandos
+            }
+            // Cancela se digitar outra coisa
+            delete pendingTTS[chatId];
+        }
 
         if (text.toLowerCase() === '!cancelar') {
             delete userStates[chatId];
@@ -476,24 +631,24 @@ const messageHandler = async (msg) => {
             }
         }
 
-        // COMANDO FALAR
-        if (text.toLowerCase().startsWith('/falar')) {
-            const frase = text.replace(/\/falar/i, '').trim();
-            if (!frase) return msg.reply('❌ Diga o que eu devo falar. Ex: /falar Oi');
+        // COMANDO FALAR (INTERATIVO)
+        if (text.toLowerCase().startsWith('/falar') || text.toLowerCase().startsWith('@falar')) {
+            const content = text.replace(/[\/|@]falar/i, '').trim();
+            if (!content) return msg.reply('❌ Digite o texto. Ex: */falar Olá mundo*');
 
-            try {
-                const url = googleTTS.getAudioUrl(frase, {
-                    lang: 'pt-BR',
-                    slow: false,
-                    host: 'https://translate.google.com',
-                });
+            // Salva estado e exibe menu
+            pendingTTS[chatId] = { text: content, timestamp: Date.now() };
 
-                const media = await MessageMedia.fromUrl(url, { unsafeMime: true });
-                await client.sendMessage(chatId, media, { sendAudioAsVoice: true });
-            } catch (e) {
-                console.error('Erro no TTS:', e);
-                msg.reply('❌ Erro ao gerar áudio.');
-            }
+            const menu = `🗣️ *Escolha a voz:*\n\n` +
+                `1. 👩 Mulher (Rachel) - Padrão\n` +
+                `2. 👨 Homem (Adam)\n` +
+                `3. 👴 Velho (Marcus)\n` +
+                `4. 👵 Velha (Nellie)\n` +
+                `5. 👦 Menino (Fin)\n` +
+                `6. 👧 Menina (Bella)\n\n` +
+                `_Responda com o número (1-6)._`;
+
+            await client.sendMessage(chatId, menu);
         }
 
     } catch (e) {
