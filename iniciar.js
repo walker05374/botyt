@@ -208,7 +208,7 @@ client.on('message', async msg => {
         if (allLinks.length === 0) return msg.reply('⚠️ Nenhum link do YouTube encontrado nos últimos 7 minutos.');
 
         userStates[chatId] = { step: 'BATCH_DOWNLOAD', links: allLinks };
-        msg.reply(`Encontrei ${allLinks.length} link(s). 📥\nEscolha o formato:\n1. MP3 (Áudio)\n2. MP4 (Vídeo)`);
+        msg.reply(`Encontrei ${allLinks.length} link(s). 📥\nEscolha:\n1. MP3 (Áudio)\n2. MP4 (Melhor Qualidade)\n3. MP4 (720p)\n4. MP4 (360p Leve)`);
         return;
     }
 
@@ -265,11 +265,19 @@ client.on('message', async msg => {
         }
     })();
 
-    // Processamento da escolha (1 ou 2) para DOWNLOAD
+    // Processamento da escolha (1 a 4) para DOWNLOAD
     if (userStates[chatId] && userStates[chatId].step === 'BATCH_DOWNLOAD') {
-        if (text === '1' || text === '2') {
+        const choice = text.trim();
+        const options = {
+            '1': { type: 'audio', args: ['-x', '--audio-format', 'mp3'] },
+            '2': { type: 'video', args: ['-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'] },
+            '3': { type: 'video', args: ['-f', 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]'] },
+            '4': { type: 'video', args: ['-f', 'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/best[height<=360]'] }
+        };
+
+        if (options[choice]) {
             const links = userStates[chatId].links;
-            const type = text === '1' ? 'audio' : 'video';
+            const selectedOption = options[choice];
             delete userStates[chatId];
 
             msg.reply(`⏳ Iniciando download de ${links.length} arquivo(s)...`);
@@ -279,10 +287,9 @@ client.on('message', async msg => {
             for (const link of links) {
                 try {
                     const baseFilename = `dl_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-                    // Lógica simples de argumentos
-                    let args = type === 'audio'
-                        ? [link, '-x', '--audio-format', 'mp3', '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)]
-                        : [link, '-f', 'mp4', '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
+
+                    // Monta argumentos
+                    let args = [link, ...selectedOption.args, '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
 
                     if (ffmpegPath !== 'ffmpeg') {
                         args.push('--ffmpeg-location', path.dirname(ffmpegPath));
