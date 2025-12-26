@@ -192,8 +192,7 @@ const extractLinks = (text) => {
 const fetchRecentItems = async (chat, type, minTimestamp, maxTimestamp) => {
     try {
         const history = await chat.fetchMessages({ limit: 50 });
-        // Se minTimestamp for 0, pega das ultimas 24h para garantir que ache algo
-        const start = minTimestamp > 0 ? minTimestamp : (Date.now() - 86400 * 1000);
+        const start = minTimestamp || 0;
         const end = maxTimestamp || Date.now();
 
         const recentMsgs = history.filter(m => {
@@ -290,22 +289,33 @@ const messageHandler = async (msg) => {
             );
 
             uniqueMedia = uniqueMedia.filter(m => {
-                // Check de segurança (algumas mensagens podem nao ter mimetype)
-                const mime = m.mimetype || '';
+                // Tenta pegar mime e nome de _data se principal estiver vazio
+                const mime = m.mimetype || (m._data ? m._data.mimetype : '') || '';
+                const filename = m.filename || (m._data ? m._data.filename : '') || '';
+
                 const isVideo = (mime.startsWith('video/')) || m.type === 'video';
                 const isAudio = (mime.startsWith('audio/')) || m.type === 'audio' || m.type === 'ptt';
 
                 // Correção: Aceita documentos se forem video/audio por MIME ou por Extensão de arquivo
                 let isDocumentMedia = m.type === 'document' && (mime.startsWith('video/') || mime.startsWith('audio/'));
 
-                if (m.type === 'document' && !isDocumentMedia && m.filename) {
-                    const ext = m.filename.split('.').pop().toLowerCase();
+                // Se não tem mime mas é documento, tenta pela extensão
+                if (m.type === 'document' && !isDocumentMedia && filename) {
+                    const ext = filename.split('.').pop().toLowerCase();
                     if (['mp4', 'avi', 'mov', 'mkv', 'mp3', 'ogg', 'wav'].includes(ext)) {
                         isDocumentMedia = true;
                     }
                 }
 
-                return isVideo || isAudio || isDocumentMedia;
+                // ACEITE OTIMISTA: Se for documento e não tiver metadata, aceita para tentar baixar
+                if (m.type === 'document' && !mime && !filename) {
+                    console.log('[FILTER] Aceitando documento sem metadata (tentativa otimista)');
+                    isDocumentMedia = true;
+                }
+
+                const aceito = isVideo || isAudio || isDocumentMedia;
+                console.log(`[FILTER] ID: ${m.id._serialized.slice(0, 5)}... | Mime: ${mime} | Tipo: ${m.type} | DocMedia: ${isDocumentMedia} -> ${aceito ? 'ACEITO' : 'REJEITADO'}`);
+                return aceito;
             });
 
             if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia de áudio ou vídeo nova encontrada após o último comando.');
