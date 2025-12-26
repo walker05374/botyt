@@ -40,7 +40,13 @@ if [ -f "package.json" ]; then
         rm -rf node_modules package-lock.json
     fi
 
-    npm install
+        # 3. Instalação com flags explícitas para evitar erro do Puppeteer no Android
+        echo "🚀 Iniciando instalação NPM (Ignorando download do Chrome)..."
+        PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true PUPPETEER_SKIP_DOWNLOAD=true npm install
+    else
+        # Instalação padrão para outros sistemas (Windows/Linux)
+        npm install
+    fi
 else
     echo "⚠️ package.json não encontrado! Certifique-se de estar na pasta do bot."
 fi
