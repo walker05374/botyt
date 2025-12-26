@@ -147,42 +147,20 @@ const cleanTempFolder = () => {
 };
 cleanTempFolder();
 
-const isYoutubeLink = (text) => {
-    const match = text.match(/((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?/);
-    return match ? match[0] : null;
+
+
+const getYoutubeLinks = (text) => {
+    const regex = /((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?/g;
+    return [...text.matchAll(regex)].map(m => m[0]);
 };
-
-// Verificar binário yt-dlp (Compatível Win/Android)
-(async () => {
-    const binaryName = isWindows ? 'yt-dlp.exe' : 'yt-dlp';
-
-    // No Termux, prioriza o do sistema
-    if (isTermux && fs.existsSync('/data/data/com.termux/files/usr/bin/yt-dlp')) {
-        ytDlpWrap.setBinaryPath('/data/data/com.termux/files/usr/bin/yt-dlp');
-        console.log('✅ Usando yt-dlp do sistema Termux.');
-    } else {
-        const binaryPath = path.join(__dirname, binaryName);
-        ytDlpWrap.setBinaryPath(binaryPath);
-
-        if (!fs.existsSync(binaryPath)) {
-            console.log('⚠️ Baixando binário yt-dlp...');
-            try {
-                await YTDlpWrap.downloadFromGithub(binaryPath);
-                if (!isWindows) fs.chmodSync(binaryPath, '755');
-                console.log('✅ yt-dlp baixado!');
-            } catch (e) {
-                console.error('❌ Erro ao baixar yt-dlp:', e);
-            }
-        } else {
-            console.log('✅ yt-dlp local encontrado.');
-        }
-    }
-})();
 
 // --- MENSAGENS E COMANDOS ---
 client.on('message', async msg => {
     const chatId = msg.from;
     const text = msg.body.trim();
+
+    // Tratamento para não processar status ou mensagens vazias
+    if (!text && !msg.hasMedia) return;
 
     if (text.toLowerCase() === '!cancelar') {
         delete userStates[chatId];
@@ -191,67 +169,182 @@ client.on('message', async msg => {
     }
 
     if (['/ajuda', '!ajuda'].includes(text.toLowerCase())) {
-        msg.reply('🤖 Comandos:\n1. */baixar* [link youtube]\n2. Responda midia com */converter*');
+        msg.reply('🤖 Comandos:\n1. */baixar* (ou @baixar) após enviar links\n2. */converter* (ou @converter) após enviar midias\n\nO bot olha os últimos 7 minutos de conversa.');
         return;
     }
 
-    // COMANDO BAIXAR
+    // Função auxiliar para buscar itens no histórico (7 minutos)
+    const fetchRecentItems = async (chat, type) => {
+        const history = await chat.fetchMessages({ limit: 50 }); // Busca 50 para garantir
+        const limitTime = Date.now() - (7 * 60 * 1000); // 7 minutos atrás
+
+        // Filtra mensagens recentes do usuário (ou todas se for grupo e quiser pegar de todos)
+        const recentMsgs = history.filter(m => {
+            const msgTime = m.timestamp * 1000;
+            return msgTime > limitTime && !m.fromMe;
+        });
+
+        if (type === 'links') {
+            const links = [];
+            recentMsgs.forEach(m => {
+                const found = getYoutubeLinks(m.body);
+                links.push(...found);
+            });
+            return [...new Set(links)]; // Remove duplicados
+        } else if (type === 'media') {
+            return recentMsgs.filter(m => m.hasMedia);
+        }
+        return [];
+    };
+
+    // COMANDO BAIXAR (Lote com histórico de 7 min)
     if (text.toLowerCase().startsWith('/baixar') || text.toLowerCase().startsWith('@baixar')) {
-        const link = isYoutubeLink(text);
-        if (!link) return msg.reply('⚠️ Link não encontrado.');
+        const currentLinks = getYoutubeLinks(text); // Links na própria msg do comando
+        const chat = await msg.getChat();
+        const historyLinks = await fetchRecentItems(chat, 'links');
 
-        userStates[chatId] = { step: 'BATCH_DOWNLOAD', links: [link] };
-        msg.reply('Escolha:\n1. MP3 (Áudio)\n2. MP4 (Vídeo)');
+        const allLinks = [...new Set([...currentLinks, ...historyLinks])];
+
+        if (allLinks.length === 0) return msg.reply('⚠️ Nenhum link do YouTube encontrado nos últimos 7 minutos.');
+
+        userStates[chatId] = { step: 'BATCH_DOWNLOAD', links: allLinks };
+        msg.reply(`Encontrei ${allLinks.length} link(s). 📥\nEscolha o formato:\n1. MP3 (Áudio)\n2. MP4 (Vídeo)`);
         return;
     }
 
-    // COMANDO CONVERTER (/amor mantido por compatibilidade)
-    if (['/converter', '/amor'].includes(text.toLowerCase().split(' ')[0])) {
-        if (!msg.hasQuotedMsg) return msg.reply('❌ Responda a uma mídia.');
-        const quoted = await msg.getQuotedMessage();
-        if (!quoted.hasMedia) return msg.reply('❌ A mensagem respondida não tem mídia.');
+    // COMANDO CONVERTER (Lote com histórico de 7 min)
+    if (text.toLowerCase().startsWith('/converter') || text.toLowerCase().startsWith('@converter')) {
+        const chat = await msg.getChat();
+        const historyMedia = await fetchRecentItems(chat, 'media');
 
-        userStates[chatId] = { step: 'BATCH_CONVERSION', msgs: [quoted] };
-        msg.reply('Escolha:\n1. MP3\n2. OGG\n3. WAV\n4. MP4');
+        // Inclui a mensagem citada se existir
+        let quotedMediaMsg = null;
+        if (msg.hasQuotedMsg) {
+            const quoted = await msg.getQuotedMessage();
+            if (quoted.hasMedia) quotedMediaMsg = quoted;
+        }
+
+        const allMediaMsgs = quotedMediaMsg ? [...historyMedia, quotedMediaMsg] : historyMedia;
+        // Filtra duplicados por ID se necessário, mas msg objects são complexos, vamos confiar na lista
+
+        const uniqueMedia = allMediaMsgs.filter((m, index, self) =>
+            index === self.findIndex((t) => (t.id.id === m.id.id))
+        );
+
+        if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia encontrada nos últimos 7 minutos.');
+
+        userStates[chatId] = { step: 'BATCH_CONVERSION', msgs: uniqueMedia };
+        msg.reply(`Encontrei ${uniqueMedia.length} mídia(s). 🔄\nEscolha o formato:\n1. MP3\n2. OGG\n3. WAV\n4. MP4`);
         return;
     }
 
-    // Processamento da escolha (1 ou 2)
+    // Verificar binário yt-dlp (Compatível Win/Android)
+    (async () => {
+        const binaryName = isWindows ? 'yt-dlp.exe' : 'yt-dlp';
+
+        // No Termux, prioriza o do sistema
+        if (isTermux && fs.existsSync('/data/data/com.termux/files/usr/bin/yt-dlp')) {
+            ytDlpWrap.setBinaryPath('/data/data/com.termux/files/usr/bin/yt-dlp');
+            console.log('✅ Usando yt-dlp do sistema Termux.');
+        } else {
+            const binaryPath = path.join(__dirname, binaryName);
+            ytDlpWrap.setBinaryPath(binaryPath);
+
+            if (!fs.existsSync(binaryPath)) {
+                console.log('⚠️ Baixando binário yt-dlp...');
+                try {
+                    await YTDlpWrap.downloadFromGithub(binaryPath);
+                    if (!isWindows) fs.chmodSync(binaryPath, '755');
+                    console.log('✅ yt-dlp baixado!');
+                } catch (e) {
+                    console.error('❌ Erro ao baixar yt-dlp:', e);
+                }
+            } else {
+                console.log('✅ yt-dlp local encontrado.');
+            }
+        }
+    })();
+
+    // Processamento da escolha (1 ou 2) para DOWNLOAD
     if (userStates[chatId] && userStates[chatId].step === 'BATCH_DOWNLOAD') {
         if (text === '1' || text === '2') {
-            const link = userStates[chatId].links[0];
+            const links = userStates[chatId].links;
             const type = text === '1' ? 'audio' : 'video';
             delete userStates[chatId];
-            msg.reply(`⏳ Baixando...`);
 
-            try {
-                const tempDir = path.join(__dirname, 'temp');
-                const baseFilename = `dl_${Date.now()}`;
+            msg.reply(`⏳ Iniciando download de ${links.length} arquivo(s)...`);
 
-                // Lógica simples de argumentos para exemplo
-                let args = type === 'audio'
-                    ? [link, '-x', '--audio-format', 'mp3', '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)]
-                    : [link, '-f', 'mp4', '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
+            const tempDir = path.join(__dirname, 'temp');
+            // Loop para baixar todos
+            for (const link of links) {
+                try {
+                    const baseFilename = `dl_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+                    // Lógica simples de argumentos
+                    let args = type === 'audio'
+                        ? [link, '-x', '--audio-format', 'mp3', '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)]
+                        : [link, '-f', 'mp4', '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
 
-                // Adiciona local do ffmpeg se necessário
-                if (ffmpegPath !== 'ffmpeg') {
-                    args.push('--ffmpeg-location', path.dirname(ffmpegPath));
+                    if (ffmpegPath !== 'ffmpeg') {
+                        args.push('--ffmpeg-location', path.dirname(ffmpegPath));
+                    }
+
+                    await ytDlpWrap.execPromise(args);
+
+                    const files = fs.readdirSync(tempDir);
+                    const downloadedFile = files.find(f => f.startsWith(baseFilename));
+
+                    if (downloadedFile) {
+                        const media = MessageMedia.fromFilePath(path.join(tempDir, downloadedFile));
+                        await client.sendMessage(chatId, media, { caption: '✅ Aqui está!' });
+                        fs.unlinkSync(path.join(tempDir, downloadedFile));
+                    }
+                } catch (e) {
+                    console.error(e);
+                    client.sendMessage(chatId, `❌ Falha ao baixar: ${link}`);
                 }
-
-                await ytDlpWrap.execPromise(args);
-
-                const files = fs.readdirSync(tempDir);
-                const downloadedFile = files.find(f => f.startsWith(baseFilename));
-
-                if (downloadedFile) {
-                    const media = MessageMedia.fromFilePath(path.join(tempDir, downloadedFile));
-                    await client.sendMessage(chatId, media, { caption: 'Tá na mão! 😺' });
-                    fs.unlinkSync(path.join(tempDir, downloadedFile));
-                }
-            } catch (e) {
-                console.error(e);
-                client.sendMessage(chatId, '❌ Erro ao baixar.');
             }
+            client.sendMessage(chatId, '🏁 Download em lote concluído.');
+        }
+    }
+    // Processamento da escolha para CONVERSÃO (Lote)
+    if (userStates[chatId] && userStates[chatId].step === 'BATCH_CONVERSION') {
+        const formats = { '1': 'mp3', '2': 'ogg', '3': 'wav', '4': 'mp4' };
+        const format = formats[text];
+
+        if (format) {
+            const msgs = userStates[chatId].msgs;
+            delete userStates[chatId];
+
+            msg.reply(`⏳ Convertendo ${msgs.length} mídia(s) para ${format.toUpperCase()}...`);
+
+            const { convertMedia } = require('./mediaHelpers');
+            const tempDir = path.join(__dirname, 'temp');
+
+            for (const mediaMsg of msgs) {
+                try {
+                    const media = await mediaMsg.downloadMedia();
+                    if (!media) continue;
+
+                    const inputFilename = `conv_${Date.now()}_${Math.floor(Math.random() * 1000)}.${media.mimetype.split('/')[1].split(';')[0]}`;
+                    const inputPath = path.join(tempDir, inputFilename);
+
+                    fs.writeFileSync(inputPath, media.data, 'base64');
+
+                    const outputPath = await convertMedia(inputPath, format, ffmpegPath);
+
+                    const convertedMedia = MessageMedia.fromFilePath(outputPath);
+                    await client.sendMessage(chatId, convertedMedia, { caption: '✅ Convertido!' });
+
+                    // Limpeza
+                    fs.unlinkSync(inputPath);
+                    fs.unlinkSync(outputPath);
+
+                } catch (e) {
+                    console.error(e);
+                    client.sendMessage(chatId, '❌ Falha ao converter uma das mídias.');
+                }
+            }
+            client.sendMessage(chatId, '🏁 Conversão em lote concluída.');
         }
     }
 });
