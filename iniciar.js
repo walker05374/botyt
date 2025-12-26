@@ -250,7 +250,7 @@ client.on('message', async msg => {
         if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia encontrada nos últimos 5 minutos.');
 
         userStates[chatId] = { step: 'BATCH_CONVERSION', msgs: uniqueMedia };
-        msg.reply(`Encontrei ${uniqueMedia.length} mídia(s). 🔄\nEscolha o formato:\n1. MP3\n2. OGG\n3. WAV\n4. MP4`);
+        msg.reply(`Encontrei ${uniqueMedia.length} mídia(s). 🔄\nEscolha:\n1. MP3 (Áudio)`);
         return;
     }
 
@@ -332,7 +332,7 @@ client.on('message', async msg => {
     }
     // Processamento da escolha para CONVERSÃO (Lote)
     if (userStates[chatId] && userStates[chatId].step === 'BATCH_CONVERSION') {
-        const formats = { '1': 'mp3', '2': 'ogg', '3': 'wav', '4': 'mp4' };
+        const formats = { '1': 'mp3' };
         const format = formats[text];
 
         if (format) {
