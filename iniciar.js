@@ -69,24 +69,51 @@ console.log(`\n🖥️ Sistema detectado: ${isWindows ? 'Windows (PC)' : (isTerm
 
 // --- CONFIGURAÇÃO DO FFMPEG ---
 let ffmpegPath;
+
+const isPkg = typeof process.pkg !== 'undefined';
+
 try {
-    const ffmpegStatic = require('ffmpeg-static');
-    if (ffmpegStatic) {
-        ffmpegPath = ffmpegStatic;
+    if (isPkg) {
+        // Se estiver rodando como EXE (pkg)
+        // Precisamos extrair o binário do snapshot para o disco real
+        const path = require('path');
+        const fs = require('fs');
+
+        // Caminho interno no snapshot (definido no package.json assets)
+        // No pkg, 'node_modules' geralmente fica na raiz do snapshot
+        const assetPath = path.join(__dirname, 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
+
+        // Caminho destino no disco (pasta temp ou junto do exe)
+        const destPath = path.join(path.dirname(process.execPath), 'ffmpeg.exe');
+
+        // Se não existir fora, tenta copiar
+        if (!fs.existsSync(destPath)) {
+            try {
+                fs.copyFileSync(assetPath, destPath);
+                console.log('📦 Extraindo ffmpeg.exe do pacote...');
+            } catch (copyErr) {
+                console.warn('⚠️ Falha ao extrair FFmpeg (pode já estar em uso):', copyErr.message);
+            }
+        }
+
+        ffmpegPath = destPath;
     } else {
-        // Tenta achar manualmente se o require falhar
-        const manualPath = path.join(__dirname, 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
-        if (fs.existsSync(manualPath)) {
-            ffmpegPath = manualPath;
+        // Modo normal (Node.js)
+        const ffmpegStatic = require('ffmpeg-static');
+        if (ffmpegStatic) {
+            ffmpegPath = ffmpegStatic;
         } else {
-            // Fallback para PATH global
-            ffmpegPath = 'ffmpeg';
+            const manualPath = path.join(__dirname, 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
+            if (fs.existsSync(manualPath)) {
+                ffmpegPath = manualPath;
+            } else {
+                ffmpegPath = 'ffmpeg';
+            }
         }
     }
 } catch (e) {
-    console.warn('⚠️ Erro ao carregar ffmpeg-static:', e.message);
-    const manualPath = path.join(__dirname, 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
-    ffmpegPath = fs.existsSync(manualPath) ? manualPath : 'ffmpeg';
+    console.warn('⚠️ Erro Config FFmpeg:', e.message);
+    ffmpegPath = 'ffmpeg';
 }
 
 // Configura o fluent-ffmpeg

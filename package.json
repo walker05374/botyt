@@ -25,5 +25,20 @@
     "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js#webpack-exodus",
     "ws": "^8.18.3",
     "yt-dlp-wrap": "^2.3.12"
+  },
+  "bin": "iniciar.js",
+  "pkg": {
+    "scripts": "iniciar.js",
+    "assets": [
+      "node_modules/ffmpeg-static/ffmpeg.exe",
+      "node_modules/puppeteer-core/**/*"
+    ],
+    "targets": [
+      "node18-win-x64"
+    ],
+    "outputPath": "dist"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
   }
 }
