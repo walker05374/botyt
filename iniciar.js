@@ -154,7 +154,11 @@ client.on('ready', () => {
     console.log('\n==================================================');
     console.log('🤖 BOT ONLINE E PRONTO PARA USO!');
     console.log('==================================================');
-    console.log('\n📋 Comandos: /baixar (link), /converter (midia)');
+    console.log('\n📋 Comandos Disp.:');
+    console.log('1. /baixar [link] (YouTube, Insta, TikTok...)');
+    console.log('2. /converter (responda midia)');
+    console.log('3. /sticker (responda imagem)');
+    console.log('4. /falar [texto]');
 });
 
 // --- FUNÇÕES UTILITÁRIAS ---
