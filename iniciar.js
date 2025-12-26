@@ -172,11 +172,18 @@ cleanTempFolder();
 
 
 
-const getYoutubeLinks = (text) => {
+// Função para extrair links de várias plataformas (YouTube, Instagram, TikTok, Facebook, Twitter)
+const extractLinks = (text) => {
     if (!text) return [];
-    const regex = /((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?/g;
-    return [...text.matchAll(regex)].map(m => m[0]);
+    // Regex mais ampla para capturar URLs http/https
+    const regex = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g;
+    const allLinks = [...text.matchAll(regex)].map(m => m[0]);
+
+    // Filtra apenas domínios de interesse para evitar lixo
+    const allowedDomains = ['youtube.com', 'youtu.be', 'instagram.com', 'tiktok.com', 'facebook.com', 'fb.watch', 'twitter.com', 'x.com'];
+    return allLinks.filter(link => allowedDomains.some(domain => link.includes(domain)));
 };
+
 
 // --- FUNÇÕES DE LÓGICA (Extraídas para Global para Testes) ---
 
@@ -203,7 +210,7 @@ const fetchRecentItems = async (chat, type, minTimestamp, maxTimestamp) => {
     if (type === 'links') {
         const links = [];
         recentMsgs.forEach(m => {
-            const found = getYoutubeLinks(m.body);
+            const found = extractLinks(m.body);
             links.push(...found);
         });
         return [...new Set(links)]; // Remove duplicados
@@ -233,10 +240,10 @@ client.on('message', async msg => {
         return;
     }
 
-    // COMANDO BAIXAR (Lote com histórico de 7 min)
+    // COMANDO BAIXAR / INSTAGRAM / TIKTOK (Lote com histórico)
     if (text.toLowerCase().startsWith('/baixar') || text.toLowerCase().startsWith('@baixar')) {
         await msg.react('🔎'); // Feedback instantâneo
-        const currentLinks = getYoutubeLinks(text); // Links na própria msg do comando
+        const currentLinks = extractLinks(text); // Links na própria msg do comando
         const chat = await msg.getChat();
 
         // Janela de Tempo: Do último comando até AGORA (horário desta mensagem de comando)
@@ -373,7 +380,7 @@ client.on('message', async msg => {
         }
     })();
 
-    // Processamento da escolha (1 a 4) para DOWNLOAD
+    // PROCESSAMENTO /BAIXAR - Agora suporta audio apenas para YouTube
     if (userStates[chatId] && userStates[chatId].step === 'BATCH_DOWNLOAD') {
         const choice = text.trim();
         const options = {
@@ -391,14 +398,18 @@ client.on('message', async msg => {
             msg.reply(`⏳ Iniciando download de ${links.length} arquivo(s)...`);
 
             const tempDir = path.join(__dirname, 'temp');
-            // Loop para baixar todos
+
             for (const link of links) {
-                await new Promise(r => setTimeout(r, 2000)); // Delay para evitar bloqueio
+                await new Promise(r => setTimeout(r, 2000));
                 try {
                     const baseFilename = `dl_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-
-                    // Monta argumentos
                     let args = [link, ...selectedOption.args, '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
+
+                    // Ajuste para redes sociais (Insta/TikTok/etc não aceitam bem argumentos complexos de audio as vezes, mas yt-dlp lida bem)
+                    if (!link.includes('youtube.com') && !link.includes('youtu.be') && selectedOption.type === 'audio') {
+                        // Para TikTok/Insta, yt-dlp as vezes baixa mp4. Forçamos extração.
+                        args = [link, '-x', '--audio-format', 'mp3', '-o', path.join(tempDir, `${baseFilename}.%(ext)s`)];
+                    }
 
                     if (ffmpegPath !== 'ffmpeg') {
                         args.push('--ffmpeg-location', path.dirname(ffmpegPath));
@@ -416,10 +427,53 @@ client.on('message', async msg => {
                     }
                 } catch (e) {
                     console.error(e);
-                    client.sendMessage(chatId, `❌ Falha ao baixar: ${link}`);
+                    client.sendMessage(chatId, `❌ Falha ao baixar: ${link}\n(Talvez seja privado ou erro do yt-dlp)`);
                 }
             }
             client.sendMessage(chatId, '🏁 Download em lote concluído.');
+        }
+    }
+
+    // --- NOVA FUNCIONALIDADE: FIGURINHA (/sticker) ---
+    if (text.toLowerCase() === '/sticker' || text.toLowerCase() === '@sticker') {
+        let mediaMsg = msg.hasMedia ? msg : null;
+        if (!mediaMsg && msg.hasQuotedMsg) {
+            const quoted = await msg.getQuotedMessage();
+            if (quoted.hasMedia) mediaMsg = quoted;
+        }
+
+        if (mediaMsg) {
+            try {
+                const media = await mediaMsg.downloadMedia();
+                client.sendMessage(chatId, media, { sendMediaAsSticker: true });
+            } catch (e) {
+                msg.reply('❌ Erro ao criar figurinha.');
+                console.error(e);
+            }
+        } else {
+            msg.reply('❌ Envie uma imagem com a legenda /sticker ou responda a uma imagem com /sticker.');
+        }
+    }
+
+    // --- NOVA FUNCIONALIDADE: TEXTO PARA VOZ (/falar) ---
+    if (text.toLowerCase().startsWith('/falar')) {
+        const frase = text.replace(/\/falar/i, '').trim();
+        if (!frase) return msg.reply('❌ Diga o que eu devo falar. Ex: /falar Oi');
+
+        const googleTTS = require('google-tts-api');
+        try {
+            const url = googleTTS.getAudioUrl(frase, {
+                lang: 'pt-BR',
+                slow: false,
+                host: 'https://translate.google.com',
+            });
+
+            // O whatsapp-web.js aceita URL direto no MessageMedia.fromUrl
+            const media = await MessageMedia.fromUrl(url, { unsafeMime: true });
+            client.sendMessage(chatId, media, { sendAudioAsVoice: true }); // Manda como PTT (bolinha azul)
+        } catch (e) {
+            console.error(e);
+            msg.reply('❌ Erro ao gerar áudio.');
         }
     }
 
@@ -434,7 +488,7 @@ if (require.main === module) {
         fetchRecentItems,
         saveMemory,
         userLastProcessTime,
-        getYoutubeLinks,
+        extractLinks, // Atualizado
         isWindows,
         isTermux
     };

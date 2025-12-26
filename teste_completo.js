@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { fetchRecentItems, userLastProcessTime, saveMemory, isWindows, isTermux } = require('./iniciar');
+const { fetchRecentItems, userLastProcessTime, saveMemory, isWindows, isTermux, extractLinks } = require('./iniciar');
 
 // --- MOCK OBJECTS ---
 const mockChat = {
