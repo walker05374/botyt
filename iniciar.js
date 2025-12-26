@@ -255,8 +255,8 @@ client.on('message', async msg => {
             index === self.findIndex((t) => (t.id.id === m.id.id))
         );
 
-        // FILTRO DE SEGURANÇA: Apenas Áudio e Vídeo (Ignora imagens/stickers)
-        uniqueMedia = uniqueMedia.filter(m => m.mimetype.startsWith('audio/') || m.mimetype.startsWith('video/'));
+        // FILTRO DE SEGURANÇA: Apenas Áudio e Vídeo (Ignora imagens/stickers e undefined)
+        uniqueMedia = uniqueMedia.filter(m => m.mimetype && (m.mimetype.startsWith('audio/') || m.mimetype.startsWith('video/')));
 
         if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia de áudio ou vídeo nova encontrada após o último comando.');
 
