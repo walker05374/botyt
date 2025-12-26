@@ -251,14 +251,48 @@ client.on('message', async msg => {
 
         const allMediaMsgs = quotedMediaMsg ? [...historyMedia, quotedMediaMsg] : historyMedia;
         // Filtra duplicados por ID
-        const uniqueMedia = allMediaMsgs.filter((m, index, self) =>
+        let uniqueMedia = allMediaMsgs.filter((m, index, self) =>
             index === self.findIndex((t) => (t.id.id === m.id.id))
         );
 
-        if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia nova encontrada após o último comando.');
+        // FILTRO DE SEGURANÇA: Apenas Áudio e Vídeo (Ignora imagens/stickers)
+        uniqueMedia = uniqueMedia.filter(m => m.mimetype.startsWith('audio/') || m.mimetype.startsWith('video/'));
 
-        userStates[chatId] = { step: 'BATCH_CONVERSION', msgs: uniqueMedia };
-        msg.reply(`Encontrei ${uniqueMedia.length} mídia(s). 🔄\nEscolha:\n1. MP3 (Áudio)`);
+        if (uniqueMedia.length === 0) return msg.reply('❌ Nenhuma mídia de áudio ou vídeo nova encontrada após o último comando.');
+
+        // AUTOMAÇÃO: Como só tem MP3, inicia direto sem perguntar
+        const format = 'mp3';
+        msg.reply(`⚠️ Apenas formato MP3 disponível. Iniciando conversão de ${uniqueMedia.length} mídia(s)...`);
+
+        const { convertMedia } = require('./mediaHelpers');
+        const tempDir = path.join(__dirname, 'temp');
+
+        for (const mediaMsg of uniqueMedia) {
+            await new Promise(r => setTimeout(r, 2000)); // Delay para evitar bloqueio
+            try {
+                const media = await mediaMsg.downloadMedia();
+                if (!media) continue;
+
+                const inputFilename = `conv_${Date.now()}_${Math.floor(Math.random() * 1000)}.${media.mimetype.split('/')[1].split(';')[0]}`;
+                const inputPath = path.join(tempDir, inputFilename);
+
+                fs.writeFileSync(inputPath, media.data, 'base64');
+
+                const outputPath = await convertMedia(inputPath, format, ffmpegPath);
+
+                const convertedMedia = MessageMedia.fromFilePath(outputPath);
+                await client.sendMessage(chatId, convertedMedia, { caption: '✅ Convertido!' });
+
+                // Limpeza
+                fs.unlinkSync(inputPath);
+                fs.unlinkSync(outputPath);
+
+            } catch (e) {
+                console.error(e);
+                client.sendMessage(chatId, '❌ Falha ao converter uma das mídias.');
+            }
+        }
+        client.sendMessage(chatId, '🏁 Conversão em lote concluída.');
         return;
     }
 
@@ -338,48 +372,7 @@ client.on('message', async msg => {
             client.sendMessage(chatId, '🏁 Download em lote concluído.');
         }
     }
-    // Processamento da escolha para CONVERSÃO (Lote)
-    if (userStates[chatId] && userStates[chatId].step === 'BATCH_CONVERSION') {
-        const formats = { '1': 'mp3' };
-        const format = formats[text];
 
-        if (format) {
-            const msgs = userStates[chatId].msgs;
-            delete userStates[chatId];
-
-            msg.reply(`⏳ Convertendo ${msgs.length} mídia(s) para ${format.toUpperCase()}...`);
-
-            const { convertMedia } = require('./mediaHelpers');
-            const tempDir = path.join(__dirname, 'temp');
-
-            for (const mediaMsg of msgs) {
-                await new Promise(r => setTimeout(r, 2000)); // Delay para evitar bloqueio
-                try {
-                    const media = await mediaMsg.downloadMedia();
-                    if (!media) continue;
-
-                    const inputFilename = `conv_${Date.now()}_${Math.floor(Math.random() * 1000)}.${media.mimetype.split('/')[1].split(';')[0]}`;
-                    const inputPath = path.join(tempDir, inputFilename);
-
-                    fs.writeFileSync(inputPath, media.data, 'base64');
-
-                    const outputPath = await convertMedia(inputPath, format, ffmpegPath);
-
-                    const convertedMedia = MessageMedia.fromFilePath(outputPath);
-                    await client.sendMessage(chatId, convertedMedia, { caption: '✅ Convertido!' });
-
-                    // Limpeza
-                    fs.unlinkSync(inputPath);
-                    fs.unlinkSync(outputPath);
-
-                } catch (e) {
-                    console.error(e);
-                    client.sendMessage(chatId, '❌ Falha ao converter uma das mídias.');
-                }
-            }
-            client.sendMessage(chatId, '🏁 Conversão em lote concluída.');
-        }
-    }
 });
 
 client.initialize();
