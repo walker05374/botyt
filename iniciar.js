@@ -1,3 +1,4 @@
+console.log('\n\n--- 🛠️ VERSÃO DEBUG V2 (COM LOGS) 🛠️ ---\n');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const YTDlpWrap = require('yt-dlp-wrap').default;
@@ -43,8 +44,18 @@ async function downloadElevenLabsAudio(text, voiceId, outputPath) {
             }
         };
 
+        console.log(`[DEBUG TTS] VoiceID: '${voiceId}'`);
+        console.log(`[DEBUG TTS] URL: https://${options.hostname}${options.path}`);
+
         const req = https.request(options, (res) => {
             if (res.statusCode !== 200) {
+                console.error(`[DEBUG TTS] Erro Status: ${res.statusCode}`);
+                // Tenta ler o corpo do erro para saber o motivo (ex: quota excedida, voice not found)
+                let errorBody = '';
+                res.on('data', chunk => errorBody += chunk);
+                res.on('end', () => {
+                    console.error(`[DEBUG TTS] Body: ${errorBody}`);
+                });
                 return reject(new Error(`ElevenLabs API Error: ${res.statusCode}`));
             }
 
@@ -131,6 +142,15 @@ console.log(`\n🎞️ FFmpeg configurado: ${ffmpegPath}`);
 // --- BUSCA AUTOMÁTICA DO NAVEGADOR (CHROME) ---
 let chromePath;
 
+// Função para pausar antes de fechar em caso de erro
+const waitAndExit = (msg) => {
+    console.error(msg);
+    console.log('\n🔴 Pressione qualquer tecla para sair...');
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on('data', process.exit.bind(process, 1));
+};
+
 const which = (cmd) => {
     try {
         const { execSync } = require('child_process');
@@ -151,11 +171,14 @@ if (isTermux) {
     }
 
     if (!chromePath) {
-        console.error('\n❌ ERRO CRÍTICO: Chromium não encontrado no Termux!');
-        console.error('👉 Execute: pkg install chromium');
-        process.exit(1);
+        waitAndExit('\n❌ ERRO CRÍTICO: Chromium não encontrado no Termux!\n👉 Execute: pkg install chromium');
+        // process.exit(1) é chamado dentro do callback do waitAndExit,
+        // mas precisamos parar a execução aqui também para segurança, 
+        // embora o event loop vá esperar o input.
+        // Vamos deixar o node rodando até o usuário apertar algo.
+    } else {
+        console.log(`✅ Navegador encontrado: ${chromePath}`);
     }
-    console.log(`✅ Navegador encontrado: ${chromePath}`);
 
 } else if (isWindows) {
     const possiblePaths = [
@@ -168,9 +191,42 @@ if (isTermux) {
 }
 
 if (isWindows && !chromePath) {
-    console.error('❌ ERRO: Não encontrei o Google Chrome ou Edge no seu Windows!');
-    process.exit(1);
+    waitAndExit('\n❌ ERRO FATAL: O Google Chrome (ou Edge) não foi encontrado!\n\nO bot PRECISA do navegador instalado para funcionar.\nInstale o Chrome e tente novamente.');
+    // Retornamos aqui para parar o script de tentar continuar
 }
+
+// Se não tiver chromePath e não tiver saído ainda (ex: linux sem termux), avisa
+if (!chromePath && !isTermux && !isWindows) {
+    console.warn('⚠️  Aviso: Navegador não detectado automaticamente. O Puppeteer tentará baixar ou usar um padrão.');
+}
+
+// --- VERIFICAR E PREPARAR YT-DLP NA INICIALIZAÇÃO ---
+(async () => {
+    console.log('⚙️ Verificando ferramentas externas (yt-dlp)...');
+    const binaryName = isWindows ? 'yt-dlp.exe' : 'yt-dlp';
+
+    if (isTermux && fs.existsSync('/data/data/com.termux/files/usr/bin/yt-dlp')) {
+        ytDlpWrap.setBinaryPath('/data/data/com.termux/files/usr/bin/yt-dlp');
+        console.log('✅ yt-dlp do Termux detectado.');
+    } else {
+        const binaryPath = path.join(rootDir, binaryName);
+        ytDlpWrap.setBinaryPath(binaryPath);
+
+        if (!fs.existsSync(binaryPath)) {
+            console.log('⬇️ yt-dlp não encontrado. Baixando versão oficial...');
+            try {
+                await YTDlpWrap.downloadFromGithub(binaryPath);
+                if (!isWindows) fs.chmodSync(binaryPath, '755');
+                console.log('✅ yt-dlp baixado com sucesso!');
+            } catch (e) {
+                console.error('❌ Erro crítico baixando yt-dlp:', e.message);
+                // Não matamos o processo aqui, mas o comando de baixar vai falhar depois
+            }
+        } else {
+            console.log('✅ yt-dlp local encontrado.');
+        }
+    }
+})();
 
 // --- CONFIGURAÇÃO DO CLIENTE WHATSAPP ---
 const puppeteerConfig = {
@@ -539,22 +595,8 @@ const messageHandler = async (msg) => {
             return;
         }
 
-        // VERIFICAR YT-DLP
-        (async () => {
-            const binaryName = isWindows ? 'yt-dlp.exe' : 'yt-dlp';
-            if (isTermux && fs.existsSync('/data/data/com.termux/files/usr/bin/yt-dlp')) {
-                ytDlpWrap.setBinaryPath('/data/data/com.termux/files/usr/bin/yt-dlp');
-            } else {
-                const binaryPath = path.join(rootDir, binaryName);
-                ytDlpWrap.setBinaryPath(binaryPath);
-                if (!fs.existsSync(binaryPath)) {
-                    try {
-                        await YTDlpWrap.downloadFromGithub(binaryPath);
-                        if (!isWindows) fs.chmodSync(binaryPath, '755');
-                    } catch (e) { console.error('Erro baixando yt-dlp:', e); }
-                }
-            }
-        })();
+        // VERIFICACAO YT-DLP MOVIDA PARA INICIALIZACAO
+
 
         // PROCESSAMENTO DE DOWNLOAD
         if (userStates[chatId] && userStates[chatId].step === 'BATCH_DOWNLOAD') {
