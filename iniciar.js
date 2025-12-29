@@ -22,12 +22,13 @@ const { ElevenLabsClient } = require('@elevenlabs/elevenlabs-js');
 const elevenLabs = new ElevenLabsClient({ apiKey: 'sk_6dfa84b1616a8ddf625dc489cb11ae2802048db501cebacf' });
 
 // IDs das vozes (Padrão e Secundária)
-const VOICE_FEMALE = '21m00Tcm4TlvDq8ikWAM'; // Rachel (Mulher)
+// IDs das vozes (VERIFICADAS EM 29/12/2025)
+const VOICE_FEMALE = 'EXAVITQu4vr4xnSDxMaL'; // Sarah (Mulher)
 const VOICE_MALE = 'pNInz6obpgDQGcFmaJgB';   // Adam (Homem)
-const VOICE_OLD_MALE = 'N2lVSneC4wXUNC156fE9'; // Marcus (Velho/Deep)
-const VOICE_OLD_FEMALE = 't0jbNlBVZ17f02VwhZ6Z'; // Nellie (Velha)
-const VOICE_KID_MALE = 'D38z5RcWu1voky8WSVqt'; // Fin (Menino)
-const VOICE_KID_FEMALE = 'EXAVITQu4vr4xnSDxMaL'; // Bella (Menina)
+const VOICE_OLD_MALE = 'pqHfZKP75CvOlQylNhV4'; // Bill (Velho/Deep)
+const VOICE_OLD_FEMALE = 'Xb7hH8MSUJpSbSDYk0k2'; // Alice (Velha - Educator)
+const VOICE_KID_MALE = 'CwhRBWXzGAHq8TQ4Fs17'; // Roger (Usando Roger como alternativo)
+const VOICE_KID_FEMALE = 'cgSgspJ2msm6clMCkdW9'; // Jessica (Menina/Jovem)
 
 // Função Helper local para download (HTTPS Nativo para evitar erros de Stream/Buffer)
 async function downloadElevenLabsAudio(text, voiceId, outputPath) {
